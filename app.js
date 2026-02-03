@@ -123,6 +123,7 @@ function renderStats(records) {
                 <div>已核销次数: ${records.filter(r => r.status === '已调休').length}</div>
             </div>
         </div>
+        ${!navigator.onLine ? `<div class="mt-2 text-xs text-orange-700 bg-orange-50 p-2 rounded">离线模式：列表为本地缓存，写入与核销不可用</div>` : ''}
     `;
 }
 
