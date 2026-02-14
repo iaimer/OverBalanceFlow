@@ -100,8 +100,8 @@ function parseDuration(range) {
 
     rawDuration -= overlap;
 
-    // 逻辑：不满0.5h按0算，不满1h按0.5h算 (以此类推，向下取整到0.5的倍数)
-    return Math.floor(Math.max(0, rawDuration) / 0.5) * 0.5;
+    // 逻辑：0~0.5h按0.5h算，0.5h~1h按1h算 (以此类推，向上取整到0.5的倍数)
+    return Math.ceil(Math.max(0, rawDuration) / 0.5) * 0.5;
 }
 
 // 渲染统计信息的函数
