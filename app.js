@@ -85,6 +85,11 @@ function parseDuration(range) {
 
     if (start >= end) return 0;
 
+    // 业务规则：加班结束时间必须超过18:00才算加班
+    // 17:00~17:59不算加班时间，只有加班到18:00后，17:00~18:00才记作1h
+    const overtimeThreshold = 18.0; // 18:00
+    if (end < overtimeThreshold) return 0;
+
     // 计算原始时长
     let rawDuration = end - start;
 
@@ -100,8 +105,10 @@ function parseDuration(range) {
 
     rawDuration -= overlap;
 
-    // 逻辑：0~0.5h按0.5h算，0.5h~1h按1h算 (以此类推，向上取整到0.5的倍数)
-    return Math.ceil(Math.max(0, rawDuration) / 0.5) * 0.5;
+    // 逻辑：向下取整到0.5小时，但最小记为0.5小时
+    // 例如：0-0.5h记0.5h，0.51-0.99h记0.5h，1.01-1.49h记1h，1.50-1.99h记1.5h
+    if (rawDuration <= 0) return 0;
+    return Math.max(0.5, Math.floor(rawDuration / 0.5) * 0.5);
 }
 
 // 渲染统计信息的函数
