@@ -2,7 +2,7 @@ let currentTab = 'ot'; // 全局状态：当前所在的标签页
 
 // 核心逻辑：多对多 FIFO 核销算法
 async function handleReconciliation(offDate, offRange) {
-    const offHours = parseDuration(offRange);
+    const offHours = parseDuration(offRange, true); // isLeave=true，跳过18:00限制
     if (offHours <= 0) return alert('时间段无效或时长太短');
 
     // 1. 获取所有有余额的记录，按日期升序（先加班的先休）
@@ -70,7 +70,8 @@ async function handleReconciliation(offDate, offRange) {
 }
 
 // 辅助函数：解析 18:00-20:00 这种格式
-function parseDuration(range) {
+// isLeave: 是否为调休计算，调休不受18:00限制
+function parseDuration(range, isLeave = false) {
     if (!range || !range.includes('-')) return 0;
     const parts = range.split('-');
     if (parts.length !== 2) return 0;
@@ -85,10 +86,10 @@ function parseDuration(range) {
 
     if (start >= end) return 0;
 
-    // 业务规则：加班结束时间必须超过18:00才算加班
+    // 业务规则：加班结束时间必须超过18:00才算加班（调休不受此限制）
     // 17:00~17:59不算加班时间，只有加班到18:00后，17:00~18:00才记作1h
     const overtimeThreshold = 18.0; // 18:00
-    if (end < overtimeThreshold) return 0;
+    if (!isLeave && end < overtimeThreshold) return 0;
 
     // 计算原始时长
     let rawDuration = end - start;
