@@ -2,6 +2,8 @@ const SB_URL = "https://mwoqpheguldiuemgztkk.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im13b3FwaGVndWxkaXVlbWd6dGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwODk5MjksImV4cCI6MjA4NTY2NTkyOX0.zpr7Nkp1t6egnwtUbmsyghCeahjYVDdG-4ZDei6ZbKE";
 const client = supabase.createClient(SB_URL, SB_KEY);
 const QUEUE_KEY = "pending_ops";
+const CACHE_VERSION = 1;
+const CACHE_VERSION_KEY = "cache_version";
 
 function getQueue() {
     const s = localStorage.getItem(QUEUE_KEY);
@@ -21,10 +23,16 @@ function pushOp(op) {
     }
 }
 function getCached() {
+    if (localStorage.getItem(CACHE_VERSION_KEY) != CACHE_VERSION) {
+        localStorage.removeItem("cached_records");
+        localStorage.setItem(CACHE_VERSION_KEY, String(CACHE_VERSION));
+        return [];
+    }
     const s = localStorage.getItem("cached_records");
     return s ? JSON.parse(s) : [];
 }
 function setCached(data) {
+    localStorage.setItem(CACHE_VERSION_KEY, String(CACHE_VERSION));
     localStorage.setItem("cached_records", JSON.stringify(data));
 }
 function addLocalRecord(record) {
@@ -57,13 +65,12 @@ const API = {
 
         if (error) {
             console.warn('Supabase Fetch Error:', error);
-            const cachedStr = localStorage.getItem('cached_records');
-            const cached = cachedStr ? JSON.parse(cachedStr) : [];
+            const cached = getCached();
             if (!cached.length) alert('数据加载失败: ' + error.message);
             return cached;
         }
 
-        localStorage.setItem('cached_records', JSON.stringify(data || []));
+        setCached(data || []);
         return data || [];
     },
 
@@ -128,7 +135,7 @@ const API = {
                     q = q.filter((x) => x !== op);
                     setQueue(q);
                 }
-            } catch (_) {}
+            } catch (e) { console.warn('Sync error (add):', e); }
         }
         for (const op of others) {
             try {
@@ -143,7 +150,7 @@ const API = {
                     q = q.filter((x) => x !== op);
                     setQueue(q);
                 }
-            } catch (_) {}
+            } catch (e) { console.warn('Sync error (update/delete):', e); }
         }
     }
 };

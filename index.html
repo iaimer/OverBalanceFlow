@@ -67,7 +67,19 @@
     <script>
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", function () {
-                navigator.serviceWorker.register("sw.js");
+                navigator.serviceWorker.register("sw.js").then(function (reg) {
+                    reg.addEventListener("updatefound", function () {
+                        var sw = reg.installing;
+                        sw.addEventListener("statechange", function () {
+                            if (sw.state === "installed" && navigator.serviceWorker.controller) {
+                                var banner = document.createElement("div");
+                                banner.className = "fixed bottom-0 left-0 right-0 bg-indigo-600 text-white p-3 text-center text-sm z-50";
+                                banner.innerHTML = '应用已更新 <a href="#" onclick="location.reload()" class="underline ml-2">点击刷新</a>';
+                                document.body.appendChild(banner);
+                            }
+                        });
+                    });
+                });
             });
             navigator.serviceWorker.addEventListener("message", function (e) {
                 if (e.data && e.data.type === "sync" && window.API && API.syncPendingOps) {

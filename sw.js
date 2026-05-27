@@ -1,4 +1,4 @@
-const CACHE_NAME = "obf-pwa-v1";
+const CACHE_NAME = "obf-pwa-v2";
 const CORE_ASSETS = ["/", "/index.html", "/style.css", "/app.js", "/api.js"];
 
 self.addEventListener("install", (event) => {

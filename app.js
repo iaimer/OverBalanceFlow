@@ -10,7 +10,7 @@ async function handleReconciliation(offDate, offRange) {
     let inventory = allRecords
         .filter(r => r.remaining_hours > 0 && r.status !== '已调休')
         .sort((a, b) => {
-            const dateDiff = new Date(a.ot_date) - new Date(b.ot_date);
+            const dateDiff = parseDate(a.ot_date) - parseDate(b.ot_date);
             if (dateDiff !== 0) return dateDiff;
             // 如果日期相同，按创建时间或 ID 升序排序（保证真正的 FIFO）
             return (a.created_at || a.id) > (b.created_at || b.id) ? 1 : -1;
@@ -131,7 +131,7 @@ function renderStats(records) {
                 <div>已核销次数: ${records.filter(r => r.status === '已调休').length}</div>
             </div>
         </div>
-        ${!navigator.onLine ? `<div class="mt-2 text-xs text-orange-700 bg-orange-50 p-2 rounded">离线模式：列表为本地缓存，写入与核销不可用</div>` : ''}
+        ${!navigator.onLine ? `<div class="mt-2 text-xs text-orange-700 bg-orange-50 p-2 rounded">离线模式：操作已缓存，恢复网络后自动同步</div>` : ''}
     `;
 }
 
@@ -156,6 +156,29 @@ function renderList(records) {
     }
 }
 
+function escapeHtml(str) {
+    const el = document.createElement('div');
+    el.textContent = str;
+    return el.innerHTML;
+}
+
+function parseDate(str) {
+    if (!str) return new Date(0);
+    const parts = str.split('-');
+    if (parts.length !== 3) return new Date(0);
+    const [y, m, d] = parts.map(Number);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date(0);
+    return new Date(y, m - 1, d);
+}
+
+async function withLoading(btn, fn) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = '处理中...';
+    try { await fn(); }
+    finally { btn.innerHTML = orig; btn.disabled = false; }
+}
+
 // 核心渲染逻辑提取 (复用)
 function renderListContainer(allRecords, container, isPreview) {
     container.innerHTML = '';
@@ -169,7 +192,7 @@ function renderListContainer(allRecords, container, isPreview) {
     }
 
     // 排序：默认按日期倒序 (最新的在最前)
-    filteredRecords.sort((a, b) => new Date(b.ot_date) - new Date(a.ot_date));
+    filteredRecords.sort((a, b) => parseDate(b.ot_date) - parseDate(a.ot_date));
 
     // 如果是预览模式，只取前2条
     if (isPreview) {
@@ -217,14 +240,14 @@ function renderListContainer(allRecords, container, isPreview) {
                     <div class="status-tag ${statusClass}">${record.status}</div>
                 </div>
                 <div class="text-xs text-gray-400 mt-1">${record.start_time} - ${record.end_time}</div>
-                ${displayMemo ? `<div class="text-[11px] text-gray-500 bg-gray-50 p-2 mt-2 rounded border-l-2 ${isOffRecord ? 'border-orange-200' : 'border-indigo-200'} whitespace-pre-line">${displayMemo}</div>` : ''}
+                ${displayMemo ? `<div class="text-[11px] text-gray-500 bg-gray-50 p-2 mt-2 rounded border-l-2 ${isOffRecord ? 'border-orange-200' : 'border-indigo-200'} whitespace-pre-line">${escapeHtml(displayMemo)}</div>` : ''}
                 ${!isOffRecord && (record.status === '部分核销' || record.status === '已结清') ? `<div class="text-[10px] text-indigo-400 mt-2 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>点击查看核销明细</div>` : ''}
             </div>
             <div class="text-right flex flex-col items-end gap-2">
                 <div class="text-sm font-bold ${isOffRecord ? 'text-orange-600' : (isDone ? 'text-gray-300' : 'text-indigo-600')}">
                     ${isOffRecord ? '-' + (-record.duration) : '余 ' + record.remaining_hours}h
                 </div>
-                <button onclick="handleDelete('${record.id}', '${record.status}', ${JSON.stringify(record.memo || '').replace(/"/g, '&quot;')})" class="text-gray-300 hover:text-red-500 transition-colors p-1 opacity-0 group-hover:opacity-100">
+                <button data-delete-btn class="text-gray-300 hover:text-red-500 transition-colors p-1 opacity-0 group-hover:opacity-100">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -232,6 +255,15 @@ function renderListContainer(allRecords, container, isPreview) {
             </div>
         `;
         container.appendChild(item);
+
+        const delBtn = item.querySelector('[data-delete-btn]');
+        if (delBtn) {
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                delBtn.disabled = true;
+                handleDelete(record.id, record.status, record.memo || '').finally(() => { delBtn.disabled = false; });
+            });
+        }
     });
 }
 
@@ -275,19 +307,23 @@ window.handleDelete = async (id, status, memo) => {
 
     if (!confirm(confirmMsg)) return;
 
-    // 1. 如果是调休记录，执行"返还"逻辑
+    // 1. 先删除记录本身（删除失败则不执行返还，避免双倍返还）
+    const { error } = await API.deleteRecord(id);
+    if (error) {
+        alert('删除失败: ' + error.message);
+        return;
+    }
+
+    // 2. 如果是调休记录，执行"返还"逻辑
     if (isOffRecord && memo) {
         try {
             const data = JSON.parse(memo);
-            // 获取所有当前记录，以便计算新的状态
             const allRecords = await API.fetchRecords();
 
             for (let item of data) {
                 const targetRecord = allRecords.find(r => r.id === item.id);
                 if (targetRecord) {
                     const restoredRemaining = Math.round((targetRecord.remaining_hours + item.deduct) * 100) / 100;
-                    // 如果恢复后的时长等于原始时长，状态设为"待核销"；否则设为"部分核销"
-                    // 注意：这里的 duration 是原始录入时长
                     const originalDuration = targetRecord.duration || targetRecord.total_hours;
                     const newStatus = restoredRemaining >= originalDuration ? '待核销' : '部分核销';
 
@@ -296,14 +332,11 @@ window.handleDelete = async (id, status, memo) => {
             }
         } catch (e) {
             console.error('Undo error:', e);
-            if (!confirm('该记录格式较老，无法自动返还时长，确定仍要删除吗？')) return;
+            alert('记录已删除，但无法自动返还时长，请手动调整余额。');
         }
     }
 
-    // 2. 执行删除
-    const { error } = await API.deleteRecord(id);
-    if (error) alert('删除失败: ' + error.message);
-    else await initApp();
+    await initApp();
 }
 
 // 渲染表单
@@ -352,25 +385,29 @@ function renderForm(type) {
 
         document.getElementById('ot-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const date = document.getElementById('ot-date').value;
-            const start = document.getElementById('ot-start').value;
-            const end = document.getElementById('ot-end').value;
-            const range = `${start}-${end}`;
-            const duration = parseDuration(range);
+            const btn = document.querySelector('#ot-form button[type="submit"]');
+            await withLoading(btn, async () => {
+                const date = document.getElementById('ot-date').value;
+                const start = document.getElementById('ot-start').value;
+                const end = document.getElementById('ot-end').value;
+                const range = `${start}-${end}`;
+                const duration = parseDuration(range);
 
-            if (duration <= 0) return alert('时间无效或时长不满0.5h');
+                if (duration <= 0) { alert('时间无效或时长不满0.5h'); return; }
 
-            const memo = document.getElementById('ot-memo').value;
+                const memo = document.getElementById('ot-memo').value;
 
-            const { error } = await API.addOT({
-                ot_date: date,
-                start_time: start,
-                end_time: end,
-                duration, total_hours: duration, remaining_hours: duration, status: '待核销',
-                memo: memo || ''
+                const { error } = await API.addOT({
+                    ot_date: date,
+                    start_time: start,
+                    end_time: end,
+                    duration, total_hours: duration, remaining_hours: duration, status: '待核销',
+                    memo: memo || ''
+                });
+                if (error) { alert('录入失败: ' + error.message); return; }
+                alert('加班记录已录入');
+                await initApp();
             });
-            if (error) return alert('录入失败: ' + error.message);
-            else { alert('加班记录已录入'); await initApp(); }
         });
 
     } else {
@@ -404,16 +441,20 @@ function renderForm(type) {
 
         document.getElementById('off-form')?.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const date = document.getElementById('off-date').value;
-            const start = document.getElementById('off-start').value;
-            const end = document.getElementById('off-end').value;
-            await handleReconciliation(date, `${start}-${end}`);
+            const btn = document.querySelector('#off-form button[type="submit"]');
+            await withLoading(btn, async () => {
+                const date = document.getElementById('off-date').value;
+                const start = document.getElementById('off-start').value;
+                const end = document.getElementById('off-end').value;
+                await handleReconciliation(date, `${start}-${end}`);
+            });
         });
     }
 }
 
 // 初始化应用
 async function initApp() {
+    await API.syncPendingOps();
     const data = await API.fetchRecords();
     renderStats(data);
     renderList(data);
