@@ -2,7 +2,7 @@
 
 ## 一句话
 
-加班调休统计 PWA。纯前端（Vanilla JS + Tailwind CDN + Supabase），无构建步骤，离线可用。
+加班调休统计 PWA。纯前端（Vanilla JS + 自定义 CSS + Supabase），无构建步骤，离线可用。
 
 ## 文件职责
 
@@ -12,6 +12,7 @@
 | `app.js` | 渲染、表单、业务规则 | 所有 UI 逻辑 |
 | `api.js` | Supabase CRUD + offline-first 队列 | 数据层唯一入口 |
 | `sw.js` | 缓存策略 + sync 事件 | 不引用外部变量 |
+| `style.css` | 设计系统（CSS custom properties）+ 组件样式 | 配色 token 见 `DESIGN.md` |
 
 ## 关键业务规则（不可违反）
 

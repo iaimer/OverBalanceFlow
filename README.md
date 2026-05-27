@@ -35,7 +35,7 @@ python -m http.server 8000
 | 层 | 选型 |
 |----|------|
 | 前端 | 原生 JavaScript |
-| 样式 | Tailwind CSS（CDN） |
+| 样式 | 自定义 CSS（design tokens） |
 | 后端 | Supabase（PostgreSQL + REST API） |
 | 离线 | Service Worker + Background Sync |
 | 部署 | 静态托管（GitHub Pages / Vercel） |
@@ -43,11 +43,13 @@ python -m http.server 8000
 ## 项目结构
 
 ```
-index.html   → 页面骨架 + 视图切换
-app.js       → 渲染、表单、业务规则
-api.js       → 数据层 + 离线队列
-sw.js        → 缓存与后台同步
-style.css    → 自定义样式
+index.html    → 页面骨架 + 视图切换
+app.js        → 渲染、表单、业务规则
+api.js        → 数据层 + 离线队列
+sw.js         → 缓存与后台同步
+style.css     → 设计系统 + 组件样式
+PRODUCT.md    → 产品定义（北极星）
+DESIGN.md     → 设计规范（配色、布局、组件）
 ```
 
 ## 授权
