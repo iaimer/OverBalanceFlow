@@ -91,16 +91,15 @@ function parseDuration(range, isLeave = false) {
     const overtimeThreshold = 18.0; // 18:00
     if (!isLeave && end < overtimeThreshold) return 0;
 
-    // 计算原始时长
-    let rawDuration = end - start;
+    // 加班从 17:00 开始计算（调休不受限制）
+    const workEnd = 17.0;
+    const effectiveStart = isLeave ? start : Math.max(start, workEnd);
+    let rawDuration = end - effectiveStart;
 
-    // 午休逻辑：8:30~11:30 和 12:00~17:00
-    // 如果时间段跨越了 11:30~12:00，扣除这 0.5 小时
+    // 午休逻辑：11:30~12:00 扣 0.5h
     const lunchStart = 11.5; // 11:30
     const lunchEnd = 12.0;   // 12:00
-
-    // 计算交叉部分的长度
-    const overlapStart = Math.max(start, lunchStart);
+    const overlapStart = Math.max(effectiveStart, lunchStart);
     const overlapEnd = Math.min(end, lunchEnd);
     const overlap = Math.max(0, overlapEnd - overlapStart);
 
