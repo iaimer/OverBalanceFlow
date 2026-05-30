@@ -1,6 +1,6 @@
 let currentTab = 'add';
 
-function parseDuration(range, isLeave = false) {
+function parseDuration(range, isLeave = false, isWeekend = false) {
     if (!range || !range.includes('-')) return 0;
     const parts = range.split('-');
     if (parts.length !== 2) return 0;
@@ -15,11 +15,12 @@ function parseDuration(range, isLeave = false) {
 
     if (start >= end) return 0;
 
+    const skipRules = isLeave || isWeekend;
     const overtimeThreshold = 18.0;
-    if (!isLeave && end < overtimeThreshold) return 0;
+    if (!skipRules && end < overtimeThreshold) return 0;
 
     const workEnd = 17.0;
-    const effectiveStart = isLeave ? start : Math.max(start, workEnd);
+    const effectiveStart = skipRules ? start : Math.max(start, workEnd);
     let rawDuration = end - effectiveStart;
 
     const lunchStart = 11.5;
@@ -46,6 +47,40 @@ function parseDate(str) {
     const [y, m, d] = parts.map(Number);
     if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date(0);
     return new Date(y, m - 1, d);
+}
+
+const HOLIDAYS = {
+    // 元旦
+    '2026-01-01': true, '2026-01-02': true, '2026-01-03': true,
+    // 春节
+    '2026-02-16': true, '2026-02-17': true, '2026-02-18': true,
+    '2026-02-19': true, '2026-02-20': true, '2026-02-21': true, '2026-02-22': true,
+    // 清明
+    '2026-04-04': true, '2026-04-05': true, '2026-04-06': true,
+    // 劳动节
+    '2026-05-01': true, '2026-05-02': true, '2026-05-03': true, '2026-05-04': true, '2026-05-05': true,
+    // 端午
+    '2026-06-19': true, '2026-06-20': true, '2026-06-21': true,
+    // 中秋+国庆
+    '2026-09-27': true, '2026-09-28': true, '2026-09-29': true, '2026-09-30': true,
+    '2026-10-01': true, '2026-10-02': true, '2026-10-03': true, '2026-10-04': true,
+    // 调休补班（周末上班日）
+    '2026-01-04': false, '2026-02-14': false, '2026-02-15': false,
+    '2026-05-09': false, '2026-10-10': false,
+};
+
+function isWeekendDate(dateStr) {
+    if (!dateStr) return false;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return false;
+    const [y, m, d] = parts.map(Number);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
+    return new Date(y, m - 1, d).getDay() % 6 === 0;
+}
+
+function checkHoliday(dateStr) {
+    if (HOLIDAYS[dateStr] !== undefined) return HOLIDAYS[dateStr];
+    return isWeekendDate(dateStr);
 }
 
 function withLoading(btn, fn) {
@@ -79,7 +114,8 @@ async function handleOTSubmit(e) {
         const start = document.getElementById('ot-start').value;
         const end = document.getElementById('ot-end').value;
         const range = `${start}-${end}`;
-        const duration = parseDuration(range);
+        const isHoliday = checkHoliday(date);
+        const duration = parseDuration(range, false, isHoliday);
         if (duration <= 0) { showToast('时间无效或时长不满0.5h'); return; }
 
         const memo = document.getElementById('ot-memo').value;
