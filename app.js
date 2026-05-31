@@ -205,25 +205,37 @@ async function executeReconciliation() {
 
     try {
         let allRecords = await API.fetchRecords();
+        const stalePreview = data.deductedData.some(d => {
+            const target = allRecords.find(r => r.id === d.id);
+            return !target || target.remaining_hours < d.deduct;
+        });
+        if (stalePreview) {
+            document.getElementById('preview-modal').classList.remove('show');
+            showToast('余额已变化，请重新预览核销');
+            await initApp();
+            return;
+        }
+
         for (let d of data.deductedData) {
             const target = allRecords.find(r => r.id === d.id);
-            if (!target) continue;
             const newRemaining = Math.round((target.remaining_hours - d.deduct) * 100) / 100;
             const originalDuration = target.duration || target.total_hours;
             const newStatus = newRemaining >= originalDuration ? '待核销' : (newRemaining <= 0 ? '已结清' : '部分核销');
-            await API.updateRemaining(target.id, newRemaining, newStatus);
+            const { error } = await API.updateRemaining(target.id, newRemaining, newStatus);
+            if (error) throw error;
         }
 
-        await API.addOT({
+        const { error } = await API.addOT({
             ot_date: data.offDate,
             start_time: data.offRange.split('-')[0],
             end_time: data.offRange.split('-')[1],
             duration: -data.totalDeducted,
-            total_hours: data.totalDeducted,
+            total_hours: -data.totalDeducted,
             remaining_hours: 0,
             status: '已调休',
             memo: JSON.stringify(data.deductedData.map(d => ({ id: d.id, deduct: d.deduct, info: d.info })))
         });
+        if (error) throw error;
 
         document.getElementById('preview-modal').classList.remove('show');
         showToast(data.remainingToOff > 0.01
@@ -231,6 +243,10 @@ async function executeReconciliation() {
             : `成功核销 ${data.totalDeducted.toFixed(1)}h`);
         document.getElementById('off-form').reset();
         document.getElementById('off-date').value = new Date().toISOString().split('T')[0];
+        await initApp();
+    } catch (error) {
+        console.error('Reconciliation error:', error);
+        showToast('核销失败: ' + error.message);
         await initApp();
     } finally {
         btn.disabled = false;
@@ -258,7 +274,8 @@ window.handleDelete = async (id, status, memo) => {
                     const restoredRemaining = Math.round((target.remaining_hours + item.deduct) * 100) / 100;
                     const originalDuration = target.duration || target.total_hours;
                     const newStatus = restoredRemaining >= originalDuration ? '待核销' : '部分核销';
-                    await API.updateRemaining(target.id, restoredRemaining, newStatus);
+                    const { error } = await API.updateRemaining(target.id, restoredRemaining, newStatus);
+                    if (error) throw error;
                 }
             }
         } catch (e) {
@@ -365,14 +382,14 @@ function renderListView(records) {
         let durClass = isOff ? 'negative' : (isDone ? 'zero' : 'positive');
         let durText = isOff ? `-${(-record.duration).toFixed(1)}h` : `${record.remaining_hours.toFixed(1)}h`;
 
-        let memoHtml = '';
+        let memoText = '';
         if (isOff && record.memo) {
             try {
                 const data = JSON.parse(record.memo);
-                memoHtml = `<div class="record-item-memo">${data.map(d => `${d.info} 扣 ${d.deduct}h`).join('\n')}</div>`;
-            } catch (e) { memoHtml = `<div class="record-item-memo">${escapeHtml(record.memo)}</div>`; }
+                memoText = data.map(d => `${d.info} 扣 ${d.deduct}h`).join('\n');
+            } catch (e) { memoText = record.memo; }
         } else if (!isOff && record.memo) {
-            memoHtml = `<div class="record-item-memo">${escapeHtml(record.memo)}</div>`;
+            memoText = record.memo;
         }
 
         item.innerHTML = `
@@ -384,13 +401,19 @@ function renderListView(records) {
                 <span class="record-item-duration ${durClass}">${durText}</span>
             </div>
             <div class="record-item-time">${record.start_time} - ${record.end_time}</div>
-            ${memoHtml}
             <div class="record-item-actions">
                 ${!isOff ? `<button data-info-btn class="btn-ghost" style="font-size:12px;padding:4px 8px">详情</button>` : ''}
                 <button data-delete-btn class="btn-ghost" style="font-size:12px;padding:4px 8px;color:#dc2626">删除</button>
             </div>
         `;
         container.appendChild(item);
+
+        if (memoText) {
+            const memo = document.createElement('div');
+            memo.className = 'record-item-memo';
+            memo.textContent = memoText;
+            item.querySelector('.record-item-actions').before(memo);
+        }
 
         const delBtn = item.querySelector('[data-delete-btn]');
         delBtn.addEventListener('click', (e) => {

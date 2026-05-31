@@ -8,7 +8,7 @@
 
 - **加班录入** — 选日期、时间、事由，自动按规则计算时长
 - **调休核销** — 选时间段，系统按 FIFO（最早加班先休）自动扣减余额
-- **离线可用** — 断网时操作缓存在本地，联网后自动同步
+- **离线可用** — 断网时操作缓存在本地，联网后按依赖顺序自动同步
 - **记录管理** — 查看核销历史、删除记录（余额自动返还）
 - **PWA** — 可添加到主屏幕，像 App 一样使用
 
@@ -39,6 +39,8 @@ python -m http.server 8000
 | 后端 | Supabase（PostgreSQL + REST API） |
 | 离线 | Service Worker + Background Sync |
 | 部署 | 静态托管（GitHub Pages / Vercel） |
+
+Service Worker 使用相对路径缓存应用资源，可部署在 GitHub Pages 子路径下。
 
 ## 项目结构
 

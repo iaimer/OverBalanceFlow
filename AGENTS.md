@@ -1,4 +1,4 @@
-# CLAUDE.md — AI 开发规范
+# AGENTS.md — AI 开发规范
 
 ## 一句话
 

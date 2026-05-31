@@ -1,5 +1,7 @@
-const CACHE_NAME = "obf-pwa-v2";
-const CORE_ASSETS = ["/", "/index.html", "/style.css", "/app.js", "/api.js"];
+const CACHE_NAME = "obf-pwa-v3";
+const APP_SHELL = new URL("./index.html", self.registration.scope).href;
+const SUPABASE_SDK = "https://unpkg.com/@supabase/supabase-js@2";
+const CORE_ASSETS = ["./", "./index.html", "./style.css", "./app.js", "./api.js", SUPABASE_SDK];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -22,10 +24,11 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match("/index.html")));
+    event.respondWith(fetch(req).catch(() => caches.match(APP_SHELL)));
     return;
   }
-  if (req.method === "GET" && new URL(req.url).origin === location.origin) {
+  const isAppAsset = new URL(req.url).origin === location.origin;
+  if (req.method === "GET" && (isAppAsset || req.url === SUPABASE_SDK)) {
     event.respondWith(
       caches.match(req).then((cached) => {
         const network = fetch(req)
@@ -36,7 +39,7 @@ self.addEventListener("fetch", (event) => {
             }
             return resp;
           })
-          .catch(() => cached || caches.match("/index.html"));
+          .catch(() => cached || (isAppAsset ? caches.match(APP_SHELL) : undefined));
         return cached || network;
       })
     );

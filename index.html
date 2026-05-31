@@ -130,7 +130,16 @@
                         if (sw.state === "installed" && navigator.serviceWorker.controller) {
                             var banner = document.createElement("div");
                             banner.style.cssText = "position:fixed;bottom:0;left:0;right:0;background:#1c1917;color:#fff;padding:12px;text-align:center;font-size:13px;z-index:100";
-                            banner.innerHTML = '应用已更新 <a href="#" onclick="location.reload()" class="" style="text-decoration:underline;margin-left:8px;color:#d6d3d1">点击刷新</a>';
+                            banner.textContent = "应用已更新 ";
+                            var refresh = document.createElement("a");
+                            refresh.href = "#";
+                            refresh.textContent = "点击刷新";
+                            refresh.style.cssText = "text-decoration:underline;margin-left:8px;color:#d6d3d1";
+                            refresh.addEventListener("click", function (event) {
+                                event.preventDefault();
+                                location.reload();
+                            });
+                            banner.appendChild(refresh);
                             document.body.appendChild(banner);
                         }
                     });
