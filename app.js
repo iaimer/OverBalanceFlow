@@ -1,4 +1,7 @@
 let currentTab = 'add';
+let otPhotoFile = null;
+let otPhotoPreviewUrl = '';
+let activeRecordPhotoUrls = [];
 
 function parseDuration(range, isLeave = false, isWeekend = false) {
     if (!range || !range.includes('-')) return 0;
@@ -50,21 +53,14 @@ function parseDate(str) {
 }
 
 const HOLIDAYS = {
-    // 元旦
     '2026-01-01': true, '2026-01-02': true, '2026-01-03': true,
-    // 春节
     '2026-02-16': true, '2026-02-17': true, '2026-02-18': true,
     '2026-02-19': true, '2026-02-20': true, '2026-02-21': true, '2026-02-22': true,
-    // 清明
     '2026-04-04': true, '2026-04-05': true, '2026-04-06': true,
-    // 劳动节
     '2026-05-01': true, '2026-05-02': true, '2026-05-03': true, '2026-05-04': true, '2026-05-05': true,
-    // 端午
     '2026-06-19': true, '2026-06-20': true, '2026-06-21': true,
-    // 中秋+国庆
     '2026-09-27': true, '2026-09-28': true, '2026-09-29': true, '2026-09-30': true,
     '2026-10-01': true, '2026-10-02': true, '2026-10-03': true, '2026-10-04': true,
-    // 调休补班（周末上班日）
     '2026-01-04': false, '2026-02-14': false, '2026-02-15': false,
     '2026-05-09': false, '2026-10-10': false,
 };
@@ -87,8 +83,23 @@ function withLoading(btn, fn) {
     const orig = btn.innerHTML;
     btn.disabled = true;
     btn.textContent = '处理中...';
-    try { const r = fn(); if (r && r.finally) return r.finally(() => { btn.innerHTML = orig; btn.disabled = false; }); }
-    finally { btn.innerHTML = orig; btn.disabled = false; }
+
+    const restore = () => {
+        btn.innerHTML = orig;
+        btn.disabled = false;
+    };
+
+    try {
+        const result = fn();
+        if (result && typeof result.finally === 'function') {
+            return result.finally(restore);
+        }
+        restore();
+        return result;
+    } catch (error) {
+        restore();
+        throw error;
+    }
 }
 
 function showToast(msg) {
@@ -106,6 +117,128 @@ function updateSyncStatus() {
     banner.classList.toggle('visible', !navigator.onLine);
 }
 
+function revokeOtPhotoPreview() {
+    if (otPhotoPreviewUrl) {
+        URL.revokeObjectURL(otPhotoPreviewUrl);
+        otPhotoPreviewUrl = '';
+    }
+}
+
+function updateOtPhotoPanel() {
+    const panel = document.getElementById('ot-photo-panel');
+    const preview = document.getElementById('ot-photo-preview');
+    if (!panel || !preview) return;
+
+    if (!otPhotoFile || !otPhotoPreviewUrl) {
+        panel.hidden = true;
+        preview.removeAttribute('src');
+        return;
+    }
+
+    preview.src = otPhotoPreviewUrl;
+    panel.hidden = false;
+}
+
+function clearOtPhotoSelection(resetInput = true) {
+    otPhotoFile = null;
+    revokeOtPhotoPreview();
+    if (resetInput) document.getElementById('ot-photo').value = '';
+    updateOtPhotoPanel();
+}
+
+function handleOtPhotoChange(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+        clearOtPhotoSelection(false);
+        return;
+    }
+
+    otPhotoFile = file;
+    revokeOtPhotoPreview();
+    otPhotoPreviewUrl = URL.createObjectURL(file);
+    updateOtPhotoPanel();
+}
+
+function revokeActiveRecordPhotoUrls() {
+    activeRecordPhotoUrls.forEach((url) => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    });
+    activeRecordPhotoUrls = [];
+}
+
+function trackActiveRecordPhotoUrls(records) {
+    revokeActiveRecordPhotoUrls();
+    activeRecordPhotoUrls = records
+        .map((record) => record.photo_url)
+        .filter((url) => typeof url === 'string' && url.startsWith('blob:'));
+}
+
+function openPhotoModal(photoUrl) {
+    if (!photoUrl) return;
+    document.getElementById('photo-modal-image').src = photoUrl;
+    document.getElementById('photo-modal').classList.add('show');
+}
+
+function closePhotoModal() {
+    document.getElementById('photo-modal').classList.remove('show');
+    document.getElementById('photo-modal-image').removeAttribute('src');
+}
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+        reader.readAsDataURL(file);
+    });
+}
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('图片加载失败'));
+        img.src = src;
+    });
+}
+
+async function compressPhoto(file) {
+    if (!file) return null;
+
+    const src = await readFileAsDataUrl(file);
+    const image = await loadImage(src);
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('无法处理图片');
+    ctx.drawImage(image, 0, 0, width, height);
+
+    const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((result) => {
+            if (!result) {
+                reject(new Error('图片压缩失败'));
+                return;
+            }
+            resolve(result);
+        }, 'image/jpeg', 0.82);
+    });
+
+    return blob;
+}
+
+function resetOtForm() {
+    document.getElementById('ot-form').reset();
+    document.getElementById('ot-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('ot-start').value = '17:00';
+    clearOtPhotoSelection();
+}
+
 async function handleOTSubmit(e) {
     e.preventDefault();
     const btn = document.getElementById('ot-submit');
@@ -116,19 +249,41 @@ async function handleOTSubmit(e) {
         const range = `${start}-${end}`;
         const isHoliday = checkHoliday(date);
         const duration = parseDuration(range, false, isHoliday);
-        if (duration <= 0) { showToast('时间无效或时长不满0.5h'); return; }
+        if (duration <= 0) {
+            showToast('时间无效或时长不满0.5h');
+            return;
+        }
+
+        let photoBlob = null;
+        if (otPhotoFile) {
+            try {
+                photoBlob = await compressPhoto(otPhotoFile);
+            } catch (error) {
+                showToast(error.message || '照片处理失败');
+                return;
+            }
+        }
 
         const memo = document.getElementById('ot-memo').value;
         const { error } = await API.addOT({
-            ot_date: date, start_time: start, end_time: end,
-            duration, total_hours: duration, remaining_hours: duration, status: '待核销',
-            memo: memo || ''
-        });
-        if (error) { showToast('录入失败: ' + error.message); return; }
-        showToast('加班已记录');
-        document.getElementById('ot-form').reset();
-        document.getElementById('ot-date').value = new Date().toISOString().split('T')[0];
-        document.getElementById('ot-start').value = '17:00';
+            ot_date: date,
+            start_time: start,
+            end_time: end,
+            duration,
+            total_hours: duration,
+            remaining_hours: duration,
+            status: '待核销',
+            memo: memo || '',
+            photo_path: null
+        }, { photoBlob });
+
+        if (error) {
+            showToast('录入失败: ' + error.message);
+            return;
+        }
+
+        showToast(photoBlob ? '加班和打卡照片已记录' : '加班已记录');
+        resetOtForm();
         await initApp();
     });
 }
@@ -140,7 +295,10 @@ async function handleReconcileSubmit(e) {
     const end = document.getElementById('off-end').value;
     const offRange = `${start}-${end}`;
     const offHours = parseDuration(offRange, true);
-    if (offHours <= 0) { showToast('时间段无效或时长太短'); return; }
+    if (offHours <= 0) {
+        showToast('时间段无效或时长太短');
+        return;
+    }
 
     let allRecords = await API.fetchRecords();
     let inventory = allRecords
@@ -150,7 +308,10 @@ async function handleReconcileSubmit(e) {
             return d !== 0 ? d : (a.created_at || a.id) > (b.created_at || b.id) ? 1 : -1;
         });
 
-    if (inventory.length === 0) { showToast('没有可用的加班余额'); return; }
+    if (inventory.length === 0) {
+        showToast('没有可用的加班余额');
+        return;
+    }
 
     let remainingToOff = offHours;
     let totalDeducted = 0;
@@ -233,7 +394,8 @@ async function executeReconciliation() {
             total_hours: -data.totalDeducted,
             remaining_hours: 0,
             status: '已调休',
-            memo: JSON.stringify(data.deductedData.map(d => ({ id: d.id, deduct: d.deduct, info: d.info })))
+            memo: JSON.stringify(data.deductedData.map(d => ({ id: d.id, deduct: d.deduct, info: d.info }))),
+            photo_path: null
         });
         if (error) throw error;
 
@@ -254,7 +416,7 @@ async function executeReconciliation() {
     }
 }
 
-window.handleDelete = async (id, status, memo) => {
+window.handleDelete = async (id, status, memo, photoPath) => {
     const isOffRecord = status === '已调休';
     const confirmMsg = isOffRecord
         ? '确定删除这条调休记录？加班时长将自动返还。'
@@ -262,7 +424,20 @@ window.handleDelete = async (id, status, memo) => {
     if (!confirm(confirmMsg)) return;
 
     const { error } = await API.deleteRecord(id);
-    if (error) { showToast('删除失败: ' + error.message); return; }
+    if (error) {
+        showToast('删除失败: ' + error.message);
+        return;
+    }
+
+    if (!isOffRecord && photoPath) {
+        const cleanup = await API.deletePhoto(photoPath);
+        if (cleanup.error) {
+            console.warn('Photo cleanup failed:', photoPath, cleanup.error);
+            showToast('记录已删除，但图片清理失败，请稍后重试');
+        } else if (cleanup.queued) {
+            showToast('记录已删除，图片将在网络恢复后自动清理');
+        }
+    }
 
     if (isOffRecord && memo) {
         try {
@@ -290,11 +465,17 @@ window.handleDelete = async (id, status, memo) => {
 window.showOTHistory = (otRecord, allRecords) => {
     const offRecords = allRecords.filter(r => {
         if (r.status !== '已调休' || !r.memo) return false;
-        try { return JSON.parse(r.memo).some(d => d.id === otRecord.id); }
-        catch (e) { return false; }
+        try {
+            return JSON.parse(r.memo).some(d => d.id === otRecord.id);
+        } catch (e) {
+            return false;
+        }
     });
 
-    if (offRecords.length === 0) { showToast('该记录尚未被核销'); return; }
+    if (offRecords.length === 0) {
+        showToast('该记录尚未被核销');
+        return;
+    }
 
     let text = `${otRecord.ot_date} (${otRecord.start_time}-${otRecord.end_time})\n`;
     text += `原始 ${otRecord.duration || otRecord.total_hours}h，余额 ${otRecord.remaining_hours}h\n`;
@@ -321,20 +502,58 @@ function renderRecentRecords(records) {
     container.innerHTML = recent.map(r => {
         const isDone = r.remaining_hours <= 0;
         const statusLabel = isDone ? '已结清' : (r.status === '部分核销' ? '部分核销' : '待核销');
+        const photoTag = r.photo_path || r.pending_photo_id
+            ? '<span class="tag tag-photo">有打卡照</span>'
+            : '';
+
         return `<div class="recent-item">
             <div class="recent-item-left">
                 <div class="recent-item-date">${r.ot_date}</div>
                 <div class="recent-item-range">${r.start_time}-${r.end_time}</div>
             </div>
             <div class="recent-item-right">
-                <span class="recent-item-hours">${r.duration.toFixed(1)}h</span>
+                ${photoTag}
+                <span class="recent-item-hours">${Number(r.duration).toFixed(1)}h</span>
                 <span class="tag ${isDone ? 'tag-done' : (r.status === '部分核销' ? 'tag-partial' : 'tag-pending')}">${statusLabel}</span>
             </div>
         </div>`;
     }).join('');
 }
 
-// === RENDERING ===
+function renderPhotoCard(record) {
+    if (!(record.photo_url || record.photo_path || record.pending_photo_id)) return null;
+
+    const card = document.createElement(record.photo_url ? 'button' : 'div');
+    card.className = 'record-photo-card';
+    if (card.tagName === 'BUTTON') card.type = 'button';
+
+    const thumb = document.createElement('img');
+    thumb.className = 'record-photo-thumb';
+    thumb.alt = '打卡照片';
+    if (record.photo_url) thumb.src = record.photo_url;
+
+    const meta = document.createElement('div');
+    meta.className = 'record-photo-meta';
+
+    const label = document.createElement('span');
+    label.className = 'record-photo-label';
+    label.textContent = record.pending_photo_id ? '打卡照片待同步' : '打卡照片';
+
+    const action = document.createElement('span');
+    action.className = 'record-photo-action';
+    action.textContent = record.photo_url ? '点击查看' : '等待同步';
+
+    meta.appendChild(label);
+    meta.appendChild(action);
+    card.appendChild(thumb);
+    card.appendChild(meta);
+
+    if (record.photo_url) {
+        card.addEventListener('click', () => openPhotoModal(record.photo_url));
+    }
+
+    return card;
+}
 
 function renderReconcileView(records) {
     const container = document.getElementById('reconcile-inventory');
@@ -387,7 +606,9 @@ function renderListView(records) {
             try {
                 const data = JSON.parse(record.memo);
                 memoText = data.map(d => `${d.info} 扣 ${d.deduct}h`).join('\n');
-            } catch (e) { memoText = record.memo; }
+            } catch (e) {
+                memoText = record.memo;
+            }
         } else if (!isOff && record.memo) {
             memoText = record.memo;
         }
@@ -408,6 +629,11 @@ function renderListView(records) {
         `;
         container.appendChild(item);
 
+        const photoCard = !isOff ? renderPhotoCard(record) : null;
+        if (photoCard) {
+            item.querySelector('.record-item-actions').before(photoCard);
+        }
+
         if (memoText) {
             const memo = document.createElement('div');
             memo.className = 'record-item-memo';
@@ -418,7 +644,7 @@ function renderListView(records) {
         const delBtn = item.querySelector('[data-delete-btn]');
         delBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            handleDelete(record.id, record.status, record.memo || '');
+            handleDelete(record.id, record.status, record.memo || '', record.photo_path || '');
         });
 
         const infoBtn = item.querySelector('[data-info-btn]');
@@ -432,7 +658,7 @@ function renderListView(records) {
 }
 
 function renderStatsView(records) {
-    const totalOT = records.filter(r => r.status !== '已调休').reduce((s, r) => s + (r.duration || r.total_hours || 0), 0);
+    const totalOT = records.filter(r => r.status !== '已调休').reduce((s, r) => s + (Number(r.duration) || Number(r.total_hours) || 0), 0);
     const totalRemaining = records.filter(r => r.status !== '已调休').reduce((s, r) => s + r.remaining_hours, 0);
     const totalUsed = records.filter(r => r.status === '已调休').reduce((s, r) => s + (-r.duration || 0), 0);
     const otCount = records.filter(r => r.status !== '已调休').length;
@@ -464,6 +690,7 @@ async function initApp() {
     await API.syncPendingOps();
     updateSyncStatus();
     const records = await API.fetchRecords();
+    trackActiveRecordPhotoUrls(records);
 
     renderRecentRecords(records);
     renderReconcileView(records);
@@ -482,14 +709,29 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('ot-form').addEventListener('submit', handleOTSubmit);
     document.getElementById('off-form').addEventListener('submit', handleReconcileSubmit);
 
+    document.getElementById('ot-photo').addEventListener('change', handleOtPhotoChange);
+    document.getElementById('ot-photo-reselect').addEventListener('click', () => {
+        document.getElementById('ot-photo').click();
+    });
+    document.getElementById('ot-photo-clear').addEventListener('click', () => clearOtPhotoSelection());
+
     document.getElementById('preview-cancel').addEventListener('click', () => {
         document.getElementById('preview-modal').classList.remove('show');
         window._pendingReconcile = null;
     });
     document.getElementById('preview-confirm').addEventListener('click', executeReconciliation);
 
+    document.getElementById('photo-modal-close').addEventListener('click', closePhotoModal);
+    document.getElementById('photo-modal').addEventListener('click', (event) => {
+        if (event.target.id === 'photo-modal') closePhotoModal();
+    });
+
     window.addEventListener('online', updateSyncStatus);
     window.addEventListener('offline', updateSyncStatus);
+    window.addEventListener('beforeunload', () => {
+        revokeOtPhotoPreview();
+        revokeActiveRecordPhotoUrls();
+    });
 
     initApp();
 });

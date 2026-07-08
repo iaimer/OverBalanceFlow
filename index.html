@@ -42,6 +42,20 @@
                     <label class="form-label" for="ot-memo">备注</label>
                     <input type="text" id="ot-memo" class="form-input" placeholder="选填：项目上线、紧急修复...">
                 </div>
+                <div class="form-group">
+                    <label class="form-label" for="ot-photo">打卡照片</label>
+                    <input type="file" id="ot-photo" class="form-input form-file-input" accept="image/*" capture="environment">
+                    <p class="help-text">选填。移动端可直接拍照，也可从相册补选。</p>
+                    <div id="ot-photo-panel" class="photo-field" hidden>
+                        <div class="photo-field-preview">
+                            <img id="ot-photo-preview" alt="打卡照片预览">
+                        </div>
+                        <div class="photo-field-actions">
+                            <button type="button" class="btn btn-ghost" id="ot-photo-reselect">重新选择</button>
+                            <button type="button" class="btn btn-ghost" id="ot-photo-clear">移除照片</button>
+                        </div>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-ot" id="ot-submit">保存</button>
             </form>
             <div id="recent-records">
@@ -114,6 +128,15 @@
         <div class="modal-footer">
             <button class="btn btn-ghost" id="preview-cancel">取消</button>
             <button class="btn btn-leave" id="preview-confirm">确认核销</button>
+        </div>
+    </div>
+</div>
+
+<div id="photo-modal" class="modal-overlay">
+    <div class="modal-content photo-modal-content">
+        <img id="photo-modal-image" alt="打卡照片大图">
+        <div class="modal-footer">
+            <button class="btn btn-ghost" id="photo-modal-close">关闭</button>
         </div>
     </div>
 </div>
