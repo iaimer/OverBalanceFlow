@@ -46,7 +46,7 @@
 
 ### 文档
 - `README.md` 更新技术栈与项目结构说明
-- `CLAUDE.md` 新增 `renderRecentRecords`、设计文档引用、核销预览流程
+- `AGENTS.md` 新增 `renderRecentRecords`、设计文档引用、核销预览流程
 
 ---
 
@@ -74,7 +74,7 @@
 - **内联 onclick**：删除按钮改为 `data-delete-btn` + `addEventListener`
 
 ### 其他
-- 新增 `CLAUDE.md`（AI 开发规范）、`README.md`（人类使用文档）
+- 新增 `AGENTS.md`（AI 开发规范）、`README.md`（人类使用文档）
 - `fetchRecords` 统一使用 `getCached`/`setCached` 路径
 
 ---

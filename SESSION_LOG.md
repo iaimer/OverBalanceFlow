@@ -30,7 +30,7 @@ a272ed8 — add overtime photo records
 - **统计页面重设计**: 从深色卡片 (#292524) 改为白底纸卡样式
 - **加班页最近记录**: 记加班页面底部新增最近 2 条记录展示 (`renderRecentRecords()`)
 - **设计文档**: 新增 PRODUCT.md（产品定义）、DESIGN.md（设计规范）
-- **文档更新**: README.md / CHANGELOG.md / CLAUDE.md 同步更新
+- **文档更新**: README.md / CHANGELOG.md / AGENTS.md 同步更新
 - **移除 Tailwind CDN**: 全部样式迁移到自定义 style.css
 
 ### 设计决策
@@ -47,7 +47,7 @@ a272ed8 — add overtime photo records
 | index.html | view-add 新增 `#recent-records` + `#recent-list` 容器 |
 | README.md | 技术栈 Tailwind → 自定义 CSS，项目结构新增设计文档 |
 | CHANGELOG.md | 新增 Unreleased 区段 |
-| CLAUDE.md | 更新 tech stack、文件职责、业务规则 |
+| AGENTS.md | 更新 tech stack、文件职责、业务规则 |
 
 ### 待办
 - 无
@@ -97,7 +97,7 @@ a272ed8 — add overtime photo records
 | app.js | 调休 memo 安全渲染、核销过期预览和写入失败处理、存根符号修正 |
 | index.html | 更新横幅移除内联 `onclick` |
 | sw.js | 相对路径缓存、Supabase SDK 离线缓存、缓存版本升级 |
-| README.md / CHANGELOG.md / CLAUDE.md / AGENTS.md | 同步更新项目文档 |
+| README.md / CHANGELOG.md / AGENTS.md | 同步更新项目文档 |
 
 ### 遇到的问题
 - 模拟离线连续写入时发现 `Date.now()` 生成的本地 ID 可能碰撞
