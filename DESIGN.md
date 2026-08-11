@@ -19,16 +19,19 @@ Muted neutral palette — one accent color for interaction, one semantic color p
 
 | Token | Usage | Value |
 |-------|-------|-------|
-| `--bg` | Page background | `#f5f5f4` (stone-50) |
+| `--bg` | Page background | `#fafaf9` (stone-50) |
 | `--surface` | Card / form | `#ffffff` |
 | `--border` | Dividers, input borders | `#e7e5e4` (stone-200) |
-| `--text-primary` | Body | `#1c1917` (stone-900) |
+| `--text-primary` | Body | `#292524` (stone-800) |
 | `--text-secondary` | Labels, hints | `#78716c` (stone-500) |
-| `--accent` | Primary action, focus | `#2563eb` (blue-600) |
-| `--accent-hover` | Hover state | `#1d4ed8` (blue-700) |
-| `--success` | 已结清, positive states | `#059669` (emerald-600) |
-| `--warning` | 部分核销, pending | `#d97706` (amber-600) |
-| `--danger` | 待核销, delete actions | `#dc2626` (red-600) |
+| `--text-muted` | Placeholder, weak text | `#a8a29e` (stone-400) |
+| `--accent` | OT button, active add tab, hours | `#c49a2a` (土黄) |
+| `--accent-hover` | OT button hover | `#a88720` |
+| `--success` | 已结清 / 已调休 / 核销 | `#059669` (emerald-600) |
+| `--warning` | 部分核销, pending | `#92400e` (amber-800) |
+| `--danger` | 删除 / 离线 | `#dc2626` (red-600) |
+
+> 注：上述色值直接内联在 `style.css` 中（当前未使用 CSS custom properties 变量），Token 名为语义约定。
 
 ### Spacing
 4px base unit. Common values: `4px 8px 12px 16px 20px 24px 32px 48px 64px`.

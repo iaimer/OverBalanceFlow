@@ -1,5 +1,25 @@
 # Session Log
 
+## 2026-07-08 — 加班打卡照片
+
+### 背景
+为加班记录增加打卡照片附件，移动端可拍照或从相册选图，离线可用。
+
+### 完成内容
+- **照片录入**: 表单新增文件选择（`accept="image/*" capture="environment"`），Canvas 压缩后上传
+- **在线路径**: 先传 Supabase Storage（`ot-record-photos` 桶）再写记录，上传失败清理已传对象
+- **离线路径**: 照片 blob 存 IndexedDB（`obf-photo-cache`），队列项携带 `pending_photo_id`，同步时先传照片再插记录，成功后清理本地 blob
+- **展示**: 记录列表照片卡片（待同步/可查看）、点击放大预览
+- **删除**: 删除记录后清理照片对象，失败入队 `photo-delete` 待同步
+- **SQL**: 新增 `supabase_photo_storage.sql`（公开桶 + 匿名上传/删除策略）
+
+### 决策
+- 保持无认证模型，桶公开 + 匿名策略（SQL 注释明确提示 review before running）
+- 图片压缩控制存储体积（最长边 1600px）
+
+### 提交
+a272ed8 — add overtime photo records
+
 ## 2026-05-28 — UI Redesign + Design Docs
 
 ### 背景
