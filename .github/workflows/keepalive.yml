@@ -1,0 +1,24 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # 每月 1/7/13/19/25/31 日 03:00 UTC（北京时间 11:00）运行一次，
+    # 任意两次保活间隔 <= 6 天，始终小于免费项目 7 天不活跃暂停窗口。
+    - cron: "0 3 */6 * *"
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read-only ping to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          code=$(curl -fsS -o /dev/null -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/ot_records?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "keepalive HTTP $code"
+          test "$code" = "200"
