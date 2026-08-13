@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import '../domain/overtime_record.dart';
 import 'common.dart';
+import 'app_palette.dart';
 
 enum RecordFilter { all, overtime, leave }
 
@@ -28,32 +29,59 @@ class _StatsPageState extends State<StatsPage> {
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
         Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(14),
+            color: AppPalette.tealDeep,
+            borderRadius: BorderRadius.circular(16),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('可用调休'),
-                    Text(
-                      '${widget.controller.totalRemaining.toStringAsFixed(1)}h',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                  ],
-                ),
+              const Text(
+                '可用调休余额',
+                style: TextStyle(color: AppPalette.tealSoft),
               ),
               Text(
-                '累计加班 ${widget.controller.totalOvertime.toStringAsFixed(1)}h\n已用调休 ${widget.controller.totalLeave.toStringAsFixed(1)}h',
+                '${widget.controller.totalRemaining.toStringAsFixed(1)} 小时',
+                style: const TextStyle(
+                  color: AppPalette.surface,
+                  fontSize: 34,
+                  height: 1.25,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                '按最早加班记录优先核销',
+                style: TextStyle(color: AppPalette.tealSoft),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _Metric(
+                label: '累计加班',
+                value: widget.controller.totalOvertime,
+                color: AppPalette.coral,
+                background: AppPalette.coralSoft,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _Metric(
+                label: '累计调休',
+                value: widget.controller.totalLeave,
+                color: AppPalette.tealDeep,
+                background: AppPalette.tealSoft,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 28),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -83,4 +111,42 @@ class _StatsPageState extends State<StatsPage> {
       ],
     );
   }
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.background,
+  });
+
+  final String label;
+  final double value;
+  final Color color;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: AppPalette.inkMuted)),
+        const SizedBox(height: 5),
+        Text(
+          '${value.toStringAsFixed(1)}h',
+          style: TextStyle(
+            color: color,
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
 }

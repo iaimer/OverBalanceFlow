@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../app_controller.dart';
 import '../domain/holiday_calendar.dart';
 import 'common.dart';
+import 'app_palette.dart';
 
 class OvertimePage extends StatefulWidget {
   const OvertimePage({super.key, required this.controller});
@@ -33,11 +34,15 @@ class _OvertimePageState extends State<OvertimePage> {
         .where((record) => !record.isLeave)
         .take(2)
         .toList();
+    final estimated = widget.controller.duration(start, end, date);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
-        Text('把今天的加班记清楚', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 20),
+        const Text(
+          '记录时间，余额会自动进入 FIFO 账本。',
+          style: TextStyle(color: AppPalette.inkMuted),
+        ),
+        const SizedBox(height: 18),
         _Picker(
           label: '加班日期',
           value: date.toIso8601String().substring(0, 10),
@@ -47,10 +52,29 @@ class _OvertimePageState extends State<OvertimePage> {
           },
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 8, left: 4),
-          child: Text(
-            '系统判断：${widget.controller.dayType(date).label}',
-            style: Theme.of(context).textTheme.bodySmall,
+          padding: const EdgeInsets.only(top: 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppPalette.goldSoft,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                child: Text(
+                  widget.controller.dayType(date).label,
+                  style: const TextStyle(
+                    color: AppPalette.ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 12),
@@ -80,45 +104,101 @@ class _OvertimePageState extends State<OvertimePage> {
           ],
         ),
         const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+          decoration: BoxDecoration(
+            color: estimated > 0 ? AppPalette.coralSoft : AppPalette.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: estimated > 0 ? AppPalette.coral : AppPalette.outline,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.schedule_outlined,
+                color: estimated > 0
+                    ? AppPalette.coralDeep
+                    : AppPalette.inkMuted,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                estimated > 0
+                    ? '预计计入 ${estimated.toStringAsFixed(1)} 小时'
+                    : '当前时间不满足计入规则',
+                style: TextStyle(
+                  color: estimated > 0
+                      ? AppPalette.coralDeep
+                      : AppPalette.inkMuted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
         TextField(
           controller: memo,
           decoration: const InputDecoration(labelText: '备注（选填）'),
         ),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () async {
-            final value = await ImagePicker().pickImage(
-              source: ImageSource.camera,
-              imageQuality: 82,
-              maxWidth: 1600,
-            );
-            if (value != null) setState(() => photo = value);
-          },
-          icon: const Icon(Icons.photo_camera_outlined),
-          label: Text(photo == null ? '拍摄打卡照片（选填）' : '已选择照片，点击重拍'),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _pickPhoto(ImageSource.camera),
+                icon: const Icon(Icons.photo_camera_outlined),
+                label: const Text('拍照'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _pickPhoto(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('相册'),
+              ),
+            ),
+          ],
         ),
-        TextButton.icon(
-          onPressed: () async {
-            final value = await ImagePicker().pickImage(
-              source: ImageSource.gallery,
-              imageQuality: 82,
-              maxWidth: 1600,
-            );
-            if (value != null) setState(() => photo = value);
-          },
-          icon: const Icon(Icons.photo_library_outlined),
-          label: const Text('从相册选择'),
-        ),
+        if (photo != null)
+          const Padding(
+            padding: EdgeInsets.only(top: 8, left: 4),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle, size: 16, color: AppPalette.tealDeep),
+                SizedBox(width: 6),
+                Text(
+                  '已选择打卡照片',
+                  style: TextStyle(
+                    color: AppPalette.tealDeep,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 20),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppPalette.coralDeep,
+            foregroundColor: AppPalette.surface,
+          ),
           onPressed: saving ? null : _save,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Text(saving ? '正在保存…' : '保存加班'),
           ),
         ),
-        const SizedBox(height: 30),
-        Text('最近加班', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 32),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('最近加班', style: Theme.of(context).textTheme.titleMedium),
+            const Text('最近 2 条', style: TextStyle(color: AppPalette.inkMuted)),
+          ],
+        ),
         if (recent.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
@@ -150,7 +230,7 @@ class _OvertimePageState extends State<OvertimePage> {
       if (mounted)
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('加班已安全保存到本地')));
+        ).showSnackBar(const SnackBar(content: Text('加班已保存到 Supabase')));
     } catch (error) {
       if (mounted)
         ScaffoldMessenger.of(
@@ -159,6 +239,15 @@ class _OvertimePageState extends State<OvertimePage> {
     } finally {
       if (mounted) setState(() => saving = false);
     }
+  }
+
+  Future<void> _pickPhoto(ImageSource source) async {
+    final value = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 82,
+      maxWidth: 1600,
+    );
+    if (value != null && mounted) setState(() => photo = value);
   }
 }
 

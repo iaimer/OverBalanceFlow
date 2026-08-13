@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import '../domain/business_rules.dart';
 import 'common.dart';
+import 'app_palette.dart';
 
 class ReconcilePage extends StatefulWidget {
   const ReconcilePage({super.key, required this.controller});
@@ -21,12 +22,45 @@ class _ReconcilePageState extends State<ReconcilePage> {
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
     children: [
-      Text(
-        '可用余额 ${widget.controller.totalRemaining.toStringAsFixed(1)} 小时',
-        style: Theme.of(context).textTheme.titleLarge,
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: AppPalette.tealSoft,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.event_available_outlined,
+              color: AppPalette.tealDeep,
+              size: 30,
+            ),
+            const SizedBox(width: 14),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '可用调休余额',
+                  style: TextStyle(color: AppPalette.inkMuted),
+                ),
+                Text(
+                  '${widget.controller.totalRemaining.toStringAsFixed(1)} 小时',
+                  style: const TextStyle(
+                    color: AppPalette.tealDeep,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
-      const SizedBox(height: 6),
-      const Text('确认前会列出每一笔 FIFO 扣减，账目不会在预览阶段改变。'),
+      const SizedBox(height: 12),
+      const Text(
+        '确认前会列出每一笔 FIFO 扣减，预览不会改变余额。',
+        style: TextStyle(color: AppPalette.inkMuted),
+      ),
       const SizedBox(height: 24),
       ListTile(
         contentPadding: EdgeInsets.zero,
@@ -66,6 +100,10 @@ class _ReconcilePageState extends State<ReconcilePage> {
       ),
       const SizedBox(height: 18),
       FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: AppPalette.tealDeep,
+          foregroundColor: AppPalette.surface,
+        ),
         onPressed: _preview,
         child: const Padding(
           padding: EdgeInsets.symmetric(vertical: 14),
@@ -148,6 +186,10 @@ class _PreviewPage extends StatelessWidget {
           ),
         const SizedBox(height: 24),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppPalette.tealDeep,
+            foregroundColor: AppPalette.surface,
+          ),
           onPressed: () => Navigator.pop(context, true),
           child: const Padding(
             padding: EdgeInsets.symmetric(vertical: 14),
