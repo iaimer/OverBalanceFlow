@@ -1,100 +1,23 @@
-# OverBalanceFlow — Design
+# OverBalanceFlow — Android Design
 
-## Principles
+## 原则
 
-- **Quiet utility**: 不喧哗，不装饰。核心功能一目了然
-- **Offline-resilient**: 网络差时看着也像正常 app，不展示崩溃痕迹
-- **One screen at a time**: 当前视图只聚焦一个任务（记加班 / 核销 / 看列表）
-- **Durability over delight**: 动效和视觉锦上添花，但永远不牺牲数据安全和可读性
+- 安静可信：数据清楚，装饰克制，错误不能伪装成成功。
+- 一屏一事：记加班、记调休、统计、设置四个平级入口。
+- 耐久优先：迁移、保存、恢复均明确反馈，动效不掩盖状态。
+- Android 熟悉感：使用 Material 3 标准导航、日期时间选择、按钮和底部详情。
 
-## Visual Direction
+## 视觉
 
-### Typography
-- System font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`)
-- Monospace for time display (`ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`)
-- Single type scale: `text-sm` / `text-base` / `text-lg` / `text-xl` / `text-2xl`
+用户通常在白天或下班后快速记录，界面同时适配系统浅色和深色模式。主色为暖土黄 `#A47716`，仅用于主要操作和选中状态；背景使用暖灰纸色 `#FAF9F6`。状态色沿用系统 ColorScheme，避免把大量内容包装成同形卡片。
 
-### Color
-Muted neutral palette — one accent color for interaction, one semantic color per state.
+系统字体承载全部标签和正文；时间与小时数通过字重和间距建立层级，不引入展示字体。控件圆角约 10–14px，页面水平留白 20px，主要状态切换控制在 Material 默认 150–250ms。
 
-| Token | Usage | Value |
-|-------|-------|-------|
-| `--bg` | Page background | `#fafaf9` (stone-50) |
-| `--surface` | Card / form | `#ffffff` |
-| `--border` | Dividers, input borders | `#e7e5e4` (stone-200) |
-| `--text-primary` | Body | `#292524` (stone-800) |
-| `--text-secondary` | Labels, hints | `#78716c` (stone-500) |
-| `--text-muted` | Placeholder, weak text | `#a8a29e` (stone-400) |
-| `--accent` | OT button, active add tab, hours | `#c49a2a` (土黄) |
-| `--accent-hover` | OT button hover | `#a88720` |
-| `--success` | 已结清 / 已调休 / 核销 | `#059669` (emerald-600) |
-| `--warning` | 部分核销, pending | `#92400e` (amber-800) |
-| `--danger` | 删除 / 离线 | `#dc2626` (red-600) |
+## 信息架构
 
-> 注：上述色值直接内联在 `style.css` 中（当前未使用 CSS custom properties 变量），Token 名为语义约定。
+- 记加班：表单、拍照/相册、最近两条记录。
+- 记调休：余额、日期时间、FIFO 预览、事务确认页。
+- 统计：余额与累计摘要、全部/加班/调休筛选、记录详情和删除。
+- 设置：云端同步状态、ZIP 备份恢复和必要的数据安全说明。
 
-### Spacing
-4px base unit. Common values: `4px 8px 12px 16px 20px 24px 32px 48px 64px`.
-
-### Radius
-- Cards / inputs: `8px`
-- Badges / buttons: `6px`
-- Modal: `12px`
-
-### Shadows
-- Card: `0 1px 2px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1)`
-- Elevated (modal): `0 4px 6px rgba(0,0,0,0.07), 0 10px 15px rgba(0,0,0,0.1)`
-
-## Layout Architecture
-
-```
-┌─────────────────────────────────┐
-│  Header (app name + sync icon)  │
-├─────────────────────────────────┤
-│                                 │
-│  Tab bar: [记加班] [调休核销]     │
-│           [记录列表] [统计]      │
-│                                 │
-│  ┌───────────────────────────┐  │
-│  │  View container           │  │
-│  │  (one view at a time)     │  │
-│  │                           │  │
-│  └───────────────────────────┘  │
-│                                 │
-└─────────────────────────────────┘
-```
-
-## Component Inventory
-
-### Global
-- `AppHeader` — app title + online status indicator
-- `TabBar` — 4-tab navigation
-- `OfflineBanner` — shown when offline (dismissible?)
-- `LoadingSpinner` — inline or overlay
-- `Toast` — ephemeral feedback
-
-### Views
-1. **OTForm** — date picker, time range (start-end), memo, submit
-2. **ReconciliationForm** — date picker, time range, submit → FIFO result
-3. **RecordList** — filterable/sortable table of all records
-4. **StatsView** — summary: total OT / used / remaining
-
-### Shared
-- `DurationBadge` — colored badge showing hours + status
-- `DeleteButton` — icon-only, with confirmation flow
-- `MemoText` — user-provided text, rendered safely (no XSS)
-
-## Interaction Patterns
-
-- **Tab switch**: instant view swap, no animation (simplicity)
-- **Form submit**: button shows `正在保存...` (withLoading), disables inputs
-- **Delete**: confirm via alert before proceeding
-- **Offline write**: visually identical to online — queue is transparent
-- **Empty state**: "还没有记录" with suggestion to add one
-
-## Future (light → upgraded)
-
-- Dark mode
-- View transition animations
-- Drag-to-reorder in the FIFO approval dialog
-- i18n / locale support
+启动优先读取 Supabase；网络失败时只展示最后一次完整缓存。远端空响应不得覆盖有效缓存，写入失败不得显示为成功。

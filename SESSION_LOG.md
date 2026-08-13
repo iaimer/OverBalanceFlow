@@ -1,5 +1,34 @@
 # Session Log
 
+## 2026-08-13 — Flutter Android 本地化迁移
+
+### 讨论内容
+将 Web PWA 转为四入口 Flutter Android 应用，并将调试过程中的历史记录零丢失作为首要约束。
+
+### 决策 & 原因
+- 根据最新需求调整为 Supabase 云端权威数据源；本地仅缓存和备份，避免多设备状态分叉。
+- 使用 SQLite 和应用私有照片目录，避免日常依赖网络。
+- Supabase 仅作为一次性只读迁移源；暂存全量校验后才写正式库。
+- 调试/正式 flavor 包名隔离，避免调试 APK 覆盖正式数据。
+- ZIP 使用普通未加密格式，但要求逐文件哈希、照片引用校验和数据库/照片完整恢复点。
+
+### 改动文件清单
+- 新建 Flutter/Android 工程、`lib/domain`、`lib/data`、`lib/ui` 和数据安全测试。
+- 原 Web 完整移入 `legacy_web/`，新增只读冻结 SQL。
+- 重写 README、PRODUCT、DESIGN、AGENTS，新增迁移恢复手册。
+
+### 遇到的问题
+- 修正 ZIP 默认携带临时根目录导致恢复找不到 manifest 的问题。
+- 将测试 FFI 依赖锁定到无 native-assets hook 的兼容版本，Android APK 构建恢复正常。
+- 云端模型调整后将 FIFO 核销与删除改为待部署 PostgreSQL 原子 RPC；客户端不再以本地成功代替云端确认。
+- 发布前移除 Flutter 源码中的调试 Supabase key，统一改用 `--dart-define` 注入。
+
+### 最终结果
+- 22 项业务、事务、账本一致性、外部照片关联基线和备份恢复测试通过，静态分析零问题。
+- `debugging` flavor APK 构建成功；生产历史只读基线为 58 条、97.0h、余额 16.0h。
+- 设置页已精简，后续 UI 优化记录于 `PLAN.md`。
+
+
 ## 2026-07-08 — 加班打卡照片
 
 ### 背景

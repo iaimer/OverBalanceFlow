@@ -3,3 +3,15 @@ node_modules/
 *.log
 .env
 .env.local
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.metadata
+*.iml
+build/
+android/.gradle/
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
+.migration-baselines/
