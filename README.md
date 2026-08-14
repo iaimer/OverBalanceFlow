@@ -1,60 +1,63 @@
-# 加班调休统计
+# 偷闲半日
 
-加了多少班、还剩多少调休，一目了然。
-
-一个开箱即用的 PWA，记录加班时长、自动核销调休、支持离线使用。
+云端优先的 Android 加班调休账本。Supabase 保存权威数据，Flutter + SQLite 提供离线只读缓存，ZIP 提供独立备份与云端恢复。
 
 ## 功能
 
-- **加班录入** — 选日期、时间、事由，自动按规则计算时长
-- **打卡照片** — 可选拍照/相册附件，离线暂存，恢复网络后自动同步
-- **调休核销** — 选时间段，系统按 FIFO（最早加班先休）自动扣减余额
-- **离线可用** — 断网时操作缓存在本地，联网后按依赖顺序自动同步
-- **记录管理** — 查看核销历史、删除记录（余额自动返还）
-- **PWA** — 可添加到主屏幕，像 App 一样使用
+- 四个入口：记加班、记调休、统计、设置
+- 加班珊瑚橙、调休深青绿的双主题界面，可快速辨认当前业务页面
+- 工作日/节假日加班时长规则与 FIFO 调休核销
+- 相机或相册保存打卡照片
+- 完整历史、核销明细、删除调休后的事务返还
+- Supabase 云端读写、联网刷新与 SQLite 离线只读缓存
+- ZIP 备份、SHA-256 校验、按 UUID 合并恢复和恢复前数据库/照片完整快照
+- 自动判断工作日、国务院法定节假日和普通周末休息日
 
-## 加班时长规则
+## 数据安全
 
-- 当天加班必须 **结束 >= 18:00** 才计入
-- 时长**向下取整到 0.5 小时**（最少 0.5h）
-- 跨越 **11:30~12:00** 自动扣减 0.5 小时（午休）
+Supabase 是权威账本；新增、FIFO 核销、删除和 ZIP 恢复只有在云端确认成功后才刷新 SQLite 缓存。断网时可以查看最后一次完整缓存和导出备份，但不会把未确认写入伪装为成功。调试版包名为 `org.femkits.overbalanceflow.debug`，正式版为 `org.femkits.overbalanceflow`，两者的缓存目录完全隔离。
 
-## 快速开始
+迁移前只读基线保存在本机 `.migration-baselines/`，该目录被 Git 忽略。当前基线为 58 条记录、总加班 97.0h、余额 16.0h。不要把真实记录、Supabase key 或签名材料提交到 Git。
+
+使用与 App 相同算法生成基线参数：
 
 ```bash
-# 本地运行（无需安装依赖）
-npx serve .
-
-# 或者用 Python
-python -m http.server 8000
+dart run tool/baseline_fingerprint.dart .migration-baselines/overbalanceflow-baseline-YYYYMMDD
 ```
 
-浏览器打开 `http://localhost:3000` 即可使用。
+详细步骤见 [迁移与灾难恢复手册](docs/MIGRATION_AND_RECOVERY.md)。
 
-## 技术栈
+## 开发
 
-| 层 | 选型 |
-|----|------|
-| 前端 | 原生 JavaScript |
-| 样式 | 自定义 CSS（design tokens） |
-| 后端 | Supabase（PostgreSQL + REST API + Storage） |
-| 离线 | Service Worker + Background Sync |
-| 部署 | 静态托管（GitHub Pages / Vercel） |
-
-Service Worker 使用相对路径缓存应用资源，可部署在 GitHub Pages 子路径下。
-
-## 项目结构
-
-```
-index.html    → 页面骨架 + 视图切换
-app.js        → 渲染、表单、业务规则
-api.js        → 数据层 + 离线队列
-sw.js         → 缓存与后台同步
-style.css     → 设计系统 + 组件样式
-PRODUCT.md    → 产品定义（北极星）
-DESIGN.md     → 设计规范（配色、布局、组件）
+```bash
+flutter pub get
+flutter test
+flutter analyze
+flutter run --flavor debugging
+flutter build apk --debug --flavor debugging
 ```
 
-## 授权
+运行时通过编译期参数注入 Data API 地址和 publishable/anon key：
 
-MIT
+```bash
+flutter run --flavor debugging \
+  --dart-define=SUPABASE_URL=https://PROJECT.supabase.co \
+  --dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+```
+
+核销和删除依赖 [Supabase 原子 RPC](docs/supabase_cloud_ledger.sql)，必须先在 SQL Editor 审阅和部署；不得在客户端用多次普通请求模拟事务。
+
+正式 APK 需要创建独立 release keystore，并在 `android/key.properties` 配置；这两个文件均被 Git 忽略。
+
+## 目录
+
+```text
+lib/domain/       业务模型、时长和 FIFO 规则
+lib/data/         Supabase 仓库、SQLite 缓存、指纹、备份恢复
+lib/ui/           四入口 Material 界面
+test/             业务、事务、备份恢复测试
+legacy_web/       冻结前的完整 Web PWA
+docs/             迁移与灾难恢复操作手册
+```
+
+首版支持 Android 8.0（API 26）及以上。

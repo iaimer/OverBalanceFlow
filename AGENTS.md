@@ -2,94 +2,48 @@
 
 ## 一句话
 
-加班调休统计 PWA。纯前端（Vanilla JS + 自定义 CSS + Supabase），无构建步骤，离线可用。
+个人加班调休 Android 应用。Supabase 保存权威账本，Flutter + SQLite 提供离线只读缓存；旧 Web 位于 `legacy_web/`，只用于审计。
 
 ## 文件职责
 
-| 文件 | 职责 | 注意 |
-|------|------|------|
-| `index.html` | UI 骨架 + 视图切换 + SW 注册 | 不写逻辑 |
-| `app.js` | 渲染、表单、业务规则、`renderRecentRecords()` | 所有 UI 逻辑 |
-| `api.js` | Supabase CRUD + offline-first 队列 | 数据层唯一入口 |
-| `sw.js` | 缓存策略 + sync 事件 | 不引用外部变量 |
-| `style.css` | 设计系统（CSS custom properties）+ 组件样式 | 配色 token 见 `DESIGN.md` |
+| 路径 | 职责 |
+|---|---|
+| `lib/domain/` | 记录模型、时长规则、FIFO、节假日 |
+| `lib/data/` | Supabase 云端仓库、SQLite 缓存、指纹、备份恢复 |
+| `lib/ui/` | 记加班、记调休、统计、设置四入口 |
+| `test/` | 业务、数据库事务、备份恢复回归测试 |
+| `legacy_web/` | 原 PWA 完整归档，迁移完成前不得删除 |
 
-## 设计文档
+## 绝对数据安全约束
 
-- `PRODUCT.md` — 产品定义（用户、功能、非目标、数据主权）
-- `DESIGN.md` — 设计规范（配色 token `DESIGN.md`、间距、布局、组件库）
+- 所有业务写入必须由 Supabase 确认成功后再刷新 SQLite 缓存；断网不得伪装写入成功。
+- 禁止启动失败后自动清库、重建空库或用远端空结果覆盖有效缓存。
+- 调试 flavor 固定为 `org.femkits.overbalanceflow.debug`，正式 flavor 固定为 `org.femkits.overbalanceflow`。
+- 云端同步必须完整获取后再事务替换缓存；远端空结果不得覆盖已有缓存。
+- schema 升级必须显式实现事务迁移并创建恢复点；当前未知版本直接失败。
+- 核销和删除返还必须通过 PostgreSQL RPC 在单一远端事务内完成。
+- ZIP 恢复必须先验证 manifest、逐文件哈希和照片引用，再按 UUID 合并到 Supabase。
+- `.migration-baselines/` 含真实历史，只能本机只读保存，永不提交 Git。
+- 涉及 Supabase RPC、RLS 或 Storage policy 的 SQL 只能审阅后人工执行，禁止测试代码写生产数据。
 
-## 关键业务规则（不可违反）
+## 关键业务规则
 
-### 加班时长计算 `parseDuration()`
-- 加班结束时间**必须 >= 18:00** 才计入（`isLeave=true` 时跳过）
-- 时长向下取整到 0.5h，最小 0.5h
-- 跨越 11:30~12:00 扣减 0.5h（午休）
-- 时长 < 0 → 返回 0
+- 工作日结束时间必须不早于 18:00，从 17:00 起算；休息日跳过这两项限制。
+- 时长向下取整至 0.5h，最小 0.5h；跨 11:30–12:00 扣除午休。
+- FIFO 按 `ot_date`、`created_at`、UUID 升序稳定排序，必须先预览再执行。
+- 状态仅允许：`待核销 | 部分核销 | 已结清 | 已调休`。
+- 调休存根 `duration/total_hours` 为负数，`memo` 保持 `{id,deduct,info}` 数组。
+- 记加班页显示最近两条非调休记录；完整历史位于统计页。
+- 记加班固定使用珊瑚橙主题，记调休固定使用深青主题；不要用单一主题色抹平业务差异。
 
-### 核销 FIFO `handleReconcileSubmit()` / `executeReconciliation()`
-- 按 `ot_date` 升序取有余额的记录，最早加班最先消费
-- **预览确认**：先调用 `renderPreviewModal()` 展示扣减明细，用户确认后才执行
-- 创建"已调休"存根记录：`memo` 存 `JSON.stringify([{id, deduct, info}])`
-- `duration` 存根记录为负值（`-totalDeducted`）
-- 不能修改已入账的记录（除非删除返还）
-
-### 记加班视图 `renderRecentRecords()`
-- 在记加班页面底部展示最近 2 条非调休记录
-- 按日期倒序排列，显示日期、时间段、时长、状态标签
-
-### 删除顺序（不可逆转）
-1. 先 `API.deleteRecord(id)` 删除记录本身
-2. 如果失败**直接 return**，不修改任何余额
-3. 删除成功后才执行余额返还逻辑
-4. 这防止了**双倍返还漏洞**
-
-### 状态枚举
-`status` 只允许四种值：`待核销 | 部分核销 | 已结清 | 已调休`
-
-### 数据路径
-- `fetchRecords()` 在线成功时调 `setCached()`（统一版本管理）
-- `fetchRecords()` 失败时调 `getCached()` 读缓存
-- 所有离线写入走 `getCached()/setCached()`，含版本校验 `cache_version`
-- 离线新增使用 `local-*` 临时 ID；同步成功后必须改写缓存、后续队列和调休存根引用
-- `syncPendingOps()` 仅在服务端确认成功后移除队列项；依赖未同步临时 ID 的操作继续留队
-
-## 安全红线
-
-- **永不**用 `innerHTML` 插入用户文本（memo）→ 用 `textContent` + DOM 方法
-- 删除按钮绑 `data-delete-btn` + `addEventListener`，不拼字符串 onclick
-- `syncPendingOps` 的 `catch` 必须 `console.warn`，不能空吞
-
-## 数据库 `ot_records`
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | uuid | PK |
-| ot_date | date | 加班/调休日期 |
-| start_time / end_time | time | 时间段 |
-| duration | float | 计算后时长（调休存根为负） |
-| total_hours | float | = duration |
-| remaining_hours | float | 未消费余额 |
-| status | text | 四种枚举值 |
-| memo | text | OT=文本，调休=JSON 数组 |
-| created_at | timestamp | 创建时间 |
-
-## 离线策略
-
-```
-写入失败 → pushOp({type, record/id/remaining/status}) 入队 localStorage.pending_ops
-恢复在线 → initApp() 调用 syncPendingOps() 逐条重放
-新增成功 → 将 local-* 临时 ID 映射为服务端 UUID，再重放依赖操作
-SW sync 事件 → postMessage 通知页面 → 页面调用 syncPendingOps()
-```
-
-## 开发
+## 开发命令
 
 ```bash
-npx serve .          # 纯静态，无需构建
-node -c app.js       # 语法检查
+flutter pub get
+flutter test
+flutter analyze
+flutter run --flavor debugging
+flutter build apk --debug --flavor debugging
 ```
 
-## 部署
-
-静态托管（GitHub Pages / Vercel），确保 `api.js` 中的 Supabase 凭据有效。
+最低 Android API 26。release keystore 和 `android/key.properties` 永不提交。
