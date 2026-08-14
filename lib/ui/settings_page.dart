@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_controller.dart';
@@ -11,6 +12,7 @@ import '../app_controller.dart';
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
   final AppController controller;
+  static final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -58,7 +60,7 @@ class SettingsPage extends StatelessWidget {
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.archive_outlined),
         title: const Text('导出 ZIP 备份'),
-        subtitle: const Text('包含记录、日历和照片；文件未加密，请妥善保存。'),
+        subtitle: const Text('按“偷闲半日-备份-日期-时间.zip”命名；文件未加密，请妥善保存。'),
         onTap: () => _export(context),
       ),
       ListTile(
@@ -67,6 +69,30 @@ class SettingsPage extends StatelessWidget {
         title: const Text('从 ZIP 合并恢复'),
         subtitle: const Text('完整校验后合并到 Supabase，相同 UUID 使用备份版本。'),
         onTap: () => _restore(context),
+      ),
+      const SizedBox(height: 28),
+      FutureBuilder<PackageInfo>(
+        future: _packageInfo,
+        builder: (context, snapshot) {
+          final info = snapshot.data;
+          final version = info == null
+              ? '正在读取版本信息'
+              : '版本 ${info.version}（构建 ${info.buildNumber}）';
+          return Semantics(
+            label: '偷闲半日 $version',
+            child: Center(
+              child: Text(
+                '偷闲半日 · $version',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 12,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.48),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     ],
   );
@@ -81,7 +107,9 @@ class SettingsPage extends StatelessWidget {
       if (context.mounted)
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('备份已导出并通过哈希校验')));
+        ).showSnackBar(
+          SnackBar(content: Text('备份已导出：${file.uri.pathSegments.last}')),
+        );
     } catch (error) {
       if (context.mounted)
         ScaffoldMessenger.of(
