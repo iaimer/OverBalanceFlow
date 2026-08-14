@@ -74,10 +74,7 @@ class BackupService {
       );
       await destination.create(recursive: true);
       final file = File(
-        p.join(
-          destination.path,
-          'overbalanceflow-${DateTime.now().millisecondsSinceEpoch}.zip',
-        ),
+        p.join(destination.path, _backupFileName(DateTime.now())),
       );
       final encoder = ZipFileEncoder()..create(file.path);
       await encoder.addDirectory(staging, includeDirName: false);
@@ -140,6 +137,15 @@ class BackupService {
       throw const FormatException('备份记录指纹与 manifest 不一致');
     }
     return manifest;
+  }
+
+  static String _backupFileName(DateTime timestamp) {
+    final local = timestamp.toLocal();
+    String part(int value, int width) => value.toString().padLeft(width, '0');
+    final date = '${local.year}-${part(local.month, 2)}-${part(local.day, 2)}';
+    final time =
+        '${part(local.hour, 2)}${part(local.minute, 2)}${part(local.second, 2)}';
+    return '偷闲半日-备份-$date-$time.zip';
   }
 
   Future<void> restore(File zipFile) async {
