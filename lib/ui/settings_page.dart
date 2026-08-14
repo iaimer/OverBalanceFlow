@@ -21,14 +21,32 @@ class SettingsPage extends StatelessWidget {
       ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(
-          controller.usingOfflineCache
+          controller.syncing
+              ? Icons.sync
+              : controller.syncError != null
+              ? Icons.cloud_off_outlined
+              : controller.usingOfflineCache
               ? Icons.cloud_off_outlined
               : Icons.cloud_done_outlined,
         ),
-        title: Text(controller.usingOfflineCache ? '当前使用离线缓存' : 'Supabase 已同步'),
-        subtitle: const Text('联网时以云端账本为准；同步失败不会清空有效缓存。'),
-        trailing: const Icon(Icons.refresh),
-        onTap: () => _refreshCloud(context),
+        title: Text(
+          controller.syncing
+              ? '正在同步云端账本'
+              : controller.syncError != null && controller.records.isEmpty
+              ? '尚未取得云端账本'
+              : controller.usingOfflineCache
+              ? '当前使用离线缓存'
+              : 'Supabase 已同步',
+        ),
+        subtitle: Text(controller.syncError ?? '联网时以云端账本为准；同步失败不会清空有效缓存。'),
+        trailing: controller.syncing
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.refresh),
+        onTap: controller.syncing ? null : () => _refreshCloud(context),
       ),
       ListTile(
         contentPadding: EdgeInsets.zero,
@@ -58,10 +76,7 @@ class SettingsPage extends StatelessWidget {
       final directory = await getApplicationDocumentsDirectory();
       final file = await controller.backupService.exportTo(directory);
       await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          text: 'OverBalanceFlow 本地备份（未加密）',
-        ),
+        ShareParams(files: [XFile(file.path)], text: '偷闲半日本地备份（未加密）'),
       );
       if (context.mounted)
         ScaffoldMessenger.of(
@@ -93,10 +108,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   Future<void> _restore(BuildContext context) async {
-    const group = XTypeGroup(
-      label: 'OverBalanceFlow ZIP 备份',
-      extensions: ['zip'],
-    );
+    const group = XTypeGroup(label: '偷闲半日 ZIP 备份', extensions: ['zip']);
     final selected = await openFile(acceptedTypeGroups: [group]);
     final path = selected?.path;
     if (path == null) return;
@@ -122,10 +134,7 @@ class SettingsPage extends StatelessWidget {
     );
     if (confirmed != true) return;
     try {
-      final repository = controller.remote;
-      if (repository == null) throw StateError('安装包未配置 Supabase');
-      await controller.backupService.restoreToCloud(File(path), repository);
-      await controller.syncFromCloud();
+      await controller.restoreBackupToCloud(File(path));
       if (context.mounted)
         ScaffoldMessenger.of(
           context,

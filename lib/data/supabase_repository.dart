@@ -22,6 +22,7 @@ class SupabaseRepository {
   const SupabaseRepository(this.config);
   final SupabaseConfig config;
   static const bucket = 'ot-record-photos';
+  static const _requestTimeout = Duration(seconds: 12);
 
   Map<String, String> get _headers => {
     'apikey': config.key,
@@ -30,15 +31,17 @@ class SupabaseRepository {
   };
 
   Future<List<OvertimeRecord>> fetchAll() async {
-    final response = await http.get(
-      Uri.parse('${config.url}/rest/v1/ot_records').replace(
-        queryParameters: {
-          'select': '*',
-          'order': 'ot_date.desc,created_at.desc,id.desc',
-        },
-      ),
-      headers: _headers,
-    );
+    final response = await http
+        .get(
+          Uri.parse('${config.url}/rest/v1/ot_records').replace(
+            queryParameters: {
+              'select': '*',
+              'order': 'ot_date.desc,created_at.desc,id.desc',
+            },
+          ),
+          headers: _headers,
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '读取线上账本');
     return (jsonDecode(response.body) as List<dynamic>)
         .map((item) => OvertimeRecord.fromMap(item as Map<String, dynamic>))
@@ -105,10 +108,12 @@ class SupabaseRepository {
 
   Future<List<int>> downloadPhoto(String remotePath) async {
     final encoded = remotePath.split('/').map(Uri.encodeComponent).join('/');
-    final response = await http.get(
-      Uri.parse('${config.url}/storage/v1/object/public/$bucket/$encoded'),
-      headers: {'apikey': config.key},
-    );
+    final response = await http
+        .get(
+          Uri.parse('${config.url}/storage/v1/object/public/$bucket/$encoded'),
+          headers: {'apikey': config.key},
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '下载照片');
     return response.bodyBytes;
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../app_controller.dart';
 import 'overtime_page.dart';
@@ -68,15 +69,24 @@ class _HomeShellState extends State<HomeShell> {
         child: NavigationBar(
           selectedIndex: index,
           onDestinationSelected: (value) => setState(() => index = value),
-          destinations: const [
+          destinations: [
             NavigationDestination(
-              icon: Icon(Icons.more_time_outlined),
-              selectedIcon: Icon(Icons.more_time),
+              icon: _dockIcon(
+                'assets/icons/overtime-dock-candidate.svg',
+                '记加班',
+              ),
+              selectedIcon: _dockIcon(
+                'assets/icons/overtime-dock-candidate.svg',
+                '记加班',
+              ),
               label: '记加班',
             ),
             NavigationDestination(
-              icon: Icon(Icons.event_available_outlined),
-              selectedIcon: Icon(Icons.event_available),
+              icon: _dockIcon('assets/icons/leave-dock-candidate.svg', '记调休'),
+              selectedIcon: _dockIcon(
+                'assets/icons/leave-dock-candidate.svg',
+                '记调休',
+              ),
               label: '记调休',
             ),
             NavigationDestination(
@@ -94,4 +104,12 @@ class _HomeShellState extends State<HomeShell> {
       ),
     );
   }
+
+  Widget _dockIcon(String asset, String label) => SvgPicture.asset(
+    asset,
+    width: 28,
+    height: 28,
+    semanticsLabel: label,
+    colorFilter: const ColorFilter.mode(Color(0xFF161616), BlendMode.srcIn),
+  );
 }

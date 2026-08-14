@@ -54,13 +54,13 @@ android {
         create("production") {
             dimension = "environment"
             applicationId = "org.femkits.overbalanceflow"
-            resValue("string", "app_name", "加班调休")
+            resValue("string", "app_name", "偷闲半日")
         }
         create("debugging") {
             dimension = "environment"
             applicationId = "org.femkits.overbalanceflow.debug"
             versionNameSuffix = "-debug"
-            resValue("string", "app_name", "加班调休 调试版")
+            resValue("string", "app_name", "偷闲半日 调试版")
         }
     }
 

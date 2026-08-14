@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <g stroke="#161616" stroke-width="21" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Faithful single-colour redraw of the supplied clock and briefcase. -->
+    <path d="M256 32C132 32 32 132 32 256s100 224 224 224" />
+    <path d="M256 76c102 0 184 82 184 184" />
+    <path d="M256 76c-99 0-180 81-180 180s81 180 180 180" />
+    <path d="M256 88v26M167 111l13 23M103 167l23 13M88 256h26M103 345l23-13M167 401l13-23M345 111l-13 23M409 167l-23 13M424 256h-26" />
+    <path d="M256 151v91l-65 40" />
+    <circle cx="256" cy="242" r="20" />
+    <path d="M352 344v-18c0-12 10-22 22-22h31c12 0 22 10 22 22v18" />
+    <rect x="288" y="344" width="192" height="136" rx="24" />
+    <path d="M288 398h192M341 398v14M427 398v14" />
+  </g>
+</svg>

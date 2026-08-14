@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -31,35 +32,73 @@ class AppController extends ChangeNotifier {
   String? migrationError;
   String? migrationReport;
   bool usingOfflineCache = false;
+  bool syncing = false;
+  String? syncError;
+  Future<void>? _activeSync;
+  bool _mutating = false;
 
   Future<void> initialize() async {
     records = await database.records();
     _holidays = HolidayCalendar(HolidayCalendar.defaults2026);
-    if (remote != null) {
-      try {
-        await syncFromCloud();
-      } catch (_) {
-        usingOfflineCache = true;
-      }
-    }
     migrationRequired = remote == null && records.isEmpty;
     migrationReport = await database.setting('migration_report');
     loading = false;
+    usingOfflineCache = records.isNotEmpty;
     notifyListeners();
+    if (remote != null) {
+      syncing = true;
+      notifyListeners();
+      unawaited(_syncInitially());
+    }
   }
 
-  Future<void> syncFromCloud() async {
+  Future<void> _syncInitially() async {
+    try {
+      await syncFromCloud();
+    } catch (_) {
+      // 同步入口会保留缓存并记录真实失败状态。
+    }
+  }
+
+  Future<void> syncFromCloud() => _syncFromCloud();
+
+  Future<void> _syncFromCloud({bool allowDuringMutation = false}) {
+    if (_mutating && !allowDuringMutation) {
+      throw StateError('正在提交云端账本，请完成后再刷新');
+    }
+    final active = _activeSync;
+    if (active != null) return active;
+    syncing = true;
+    syncError = null;
+    notifyListeners();
+    final sync = _performCloudSync();
+    _activeSync = sync.whenComplete(() {
+      _activeSync = null;
+      syncing = false;
+      notifyListeners();
+    });
+    return _activeSync!;
+  }
+
+  Future<void> _performCloudSync() async {
     final repository = remote;
     if (repository == null) throw StateError('安装包未配置 Supabase');
-    final cloudRecords = await repository.fetchAll();
-    if (cloudRecords.isEmpty && records.isNotEmpty) {
-      throw StateError('线上返回空账本，为避免覆盖缓存已中止同步');
+    try {
+      final cloudRecords = await repository.fetchAll();
+      if (cloudRecords.isEmpty && records.isNotEmpty) {
+        throw StateError('线上返回空账本，为避免覆盖缓存已中止同步');
+      }
+      await database.replaceCache(cloudRecords);
+      records = cloudRecords;
+      usingOfflineCache = false;
+      syncError = null;
+      notifyListeners();
+      unawaited(_cacheCloudPhotos(repository, cloudRecords));
+    } catch (error) {
+      usingOfflineCache = records.isNotEmpty;
+      syncError = records.isEmpty ? '尚未取得云端账本：$error' : '云端同步失败：$error';
+      rethrow;
     }
-    await database.replaceCache(cloudRecords);
-    records = cloudRecords;
-    usingOfflineCache = false;
-    await _cacheCloudPhotos(repository, cloudRecords);
-    notifyListeners();
   }
 
   Future<void> _cacheCloudPhotos(
@@ -156,10 +195,7 @@ class AppController extends ChangeNotifier {
     migrationError = null;
     notifyListeners();
     try {
-      final repository = remote;
-      if (repository == null) throw StateError('安装包未配置 Supabase');
-      await backupService.restoreToCloud(backup, repository);
-      await syncFromCloud();
+      await restoreBackupToCloud(backup);
       migrationRequired = false;
       loading = false;
       notifyListeners();
@@ -169,6 +205,13 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> restoreBackupToCloud(File backup) => _runCloudMutation(() async {
+    final repository = remote;
+    if (repository == null) throw StateError('安装包未配置 Supabase');
+    await backupService.restoreToCloud(backup, repository);
+    await _syncFromCloud(allowDuringMutation: true);
+  });
 
   /// 只供 debug 构建的首次安装演练使用。固定 UUID 让重复点击可被安全拒绝，
   /// 整批数据在一个事务中写入，绝不连接 Supabase。
@@ -275,58 +318,60 @@ class AppController extends ChangeNotifier {
     required String memo,
     XFile? photo,
   }) async {
-    final hours = duration(start, end, date);
-    if (hours <= 0) throw StateError('时间无效或时长不足 0.5 小时');
-    final repository = remote;
-    if (repository == null) throw StateError('未配置 Supabase，不能新增线上记录');
-    final recordId = _uuid.v4();
-    String? remotePhoto;
-    List<int>? photoBytes;
-    if (photo != null) {
-      photoBytes = await photo.readAsBytes();
-      final extension = p.extension(photo.path).isEmpty
-          ? '.jpg'
-          : p.extension(photo.path);
-      remotePhoto =
-          'ot/$recordId/${DateTime.now().millisecondsSinceEpoch}$extension';
-      await repository.uploadPhoto(
-        remotePhoto,
-        photoBytes,
-        contentType: extension == '.png' ? 'image/png' : 'image/jpeg',
-      );
-    }
-    try {
-      await repository.upsertRecords([
-        OvertimeRecord(
-          id: recordId,
-          otDate: _date(date),
-          startTime: start,
-          endTime: end,
-          duration: hours,
-          totalHours: hours,
-          remainingHours: hours,
-          status: '待核销',
-          memo: memo,
-          createdAt: DateTime.now().toUtc().toIso8601String(),
-          photoPath: remotePhoto,
-        ),
-      ]);
-    } catch (_) {
-      if (remotePhoto != null) {
-        try {
-          await repository.deletePhoto(remotePhoto);
-        } catch (_) {
-          // 未引用对象不影响线上账本；后续可由 Storage 审计清理。
-        }
+    await _runCloudMutation(() async {
+      final hours = duration(start, end, date);
+      if (hours <= 0) throw StateError('时间无效或时长不足 0.5 小时');
+      final repository = remote;
+      if (repository == null) throw StateError('未配置 Supabase，不能新增线上记录');
+      final recordId = _uuid.v4();
+      String? remotePhoto;
+      List<int>? photoBytes;
+      if (photo != null) {
+        photoBytes = await photo.readAsBytes();
+        final extension = p.extension(photo.path).isEmpty
+            ? '.jpg'
+            : p.extension(photo.path);
+        remotePhoto =
+            'ot/$recordId/${DateTime.now().millisecondsSinceEpoch}$extension';
+        await repository.uploadPhoto(
+          remotePhoto,
+          photoBytes,
+          contentType: extension == '.png' ? 'image/png' : 'image/jpeg',
+        );
       }
-      rethrow;
-    }
-    if (remotePhoto != null && photoBytes != null) {
-      await (await database.photoFile(
-        remotePhoto,
-      )).writeAsBytes(photoBytes, flush: true);
-    }
-    await syncFromCloud();
+      try {
+        await repository.upsertRecords([
+          OvertimeRecord(
+            id: recordId,
+            otDate: _date(date),
+            startTime: start,
+            endTime: end,
+            duration: hours,
+            totalHours: hours,
+            remainingHours: hours,
+            status: '待核销',
+            memo: memo,
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+            photoPath: remotePhoto,
+          ),
+        ]);
+      } catch (_) {
+        if (remotePhoto != null) {
+          try {
+            await repository.deletePhoto(remotePhoto);
+          } catch (_) {
+            // 未引用对象不影响线上账本；后续可由 Storage 审计清理。
+          }
+        }
+        rethrow;
+      }
+      if (remotePhoto != null && photoBytes != null) {
+        await (await database.photoFile(
+          remotePhoto,
+        )).writeAsBytes(photoBytes, flush: true);
+      }
+      await _syncFromCloud(allowDuringMutation: true);
+    });
   }
 
   ReconciliationPreview previewLeave(String start, String end) {
@@ -341,65 +386,71 @@ class AppController extends ChangeNotifier {
     required String end,
     required ReconciliationPreview preview,
   }) async {
-    final repository = remote;
-    if (repository == null) throw StateError('未配置 Supabase，不能核销线上账本');
-    final byId = {for (final record in records) record.id: record};
-    final updates = <OvertimeRecord>[];
-    for (final detail in preview.details) {
-      final record = byId[detail.id];
-      if (record == null || record.remainingHours < detail.deduct) {
-        throw StateError('线上缓存余额已变化，请刷新后重新预览');
+    await _runCloudMutation(() async {
+      final repository = remote;
+      if (repository == null) throw StateError('未配置 Supabase，不能核销线上账本');
+      final byId = {for (final record in records) record.id: record};
+      final updates = <OvertimeRecord>[];
+      for (final detail in preview.details) {
+        final record = byId[detail.id];
+        if (record == null || record.remainingHours < detail.deduct) {
+          throw StateError('线上缓存余额已变化，请刷新后重新预览');
+        }
+        final remaining = record.remainingHours - detail.deduct;
+        updates.add(
+          record.copyWith(
+            remainingHours: remaining,
+            status: remaining <= 0 ? '已结清' : '部分核销',
+          ),
+        );
       }
-      final remaining = record.remainingHours - detail.deduct;
-      updates.add(
-        record.copyWith(
-          remainingHours: remaining,
-          status: remaining <= 0 ? '已结清' : '部分核销',
-        ),
+      final leaveRecord = OvertimeRecord(
+        id: _uuid.v4(),
+        otDate: _date(date),
+        startTime: start,
+        endTime: end,
+        duration: -preview.deductedHours,
+        totalHours: -preview.deductedHours,
+        remainingHours: 0,
+        status: '已调休',
+        memo: jsonEncode(preview.details.map((item) => item.toMap()).toList()),
+        createdAt: DateTime.now().toUtc().toIso8601String(),
       );
-    }
-    final leaveRecord = OvertimeRecord(
-      id: _uuid.v4(),
-      otDate: _date(date),
-      startTime: start,
-      endTime: end,
-      duration: -preview.deductedHours,
-      totalHours: -preview.deductedHours,
-      remainingHours: 0,
-      status: '已调休',
-      memo: jsonEncode(preview.details.map((item) => item.toMap()).toList()),
-      createdAt: DateTime.now().toUtc().toIso8601String(),
-    );
-    await repository.reconcileAtomically(leaveRecord, preview.details);
-    await syncFromCloud();
+      await repository.reconcileAtomically(leaveRecord, preview.details);
+      await _syncFromCloud(allowDuringMutation: true);
+    });
   }
 
   Future<bool> delete(String id) async {
-    final target = records.where((record) => record.id == id).firstOrNull;
-    final repository = remote;
-    if (repository == null) throw StateError('未配置 Supabase，不能删除线上记录');
-    await repository.deleteRecordAtomically(id);
-    var cleanupDeferred = false;
-    if (target?.photoPath case final photoPath?) {
-      try {
-        await syncFromCloud();
-        final remaining = records;
-        if (!remaining.any((record) => record.photoPath == photoPath)) {
-          await repository.deletePhoto(photoPath);
-          final file = await database.photoFile(photoPath);
-          if (await file.exists()) await file.delete();
-        }
-      } catch (_) {
-        cleanupDeferred = true;
+    return _runCloudMutation(() async {
+      final target = records.where((record) => record.id == id).firstOrNull;
+      final repository = remote;
+      if (repository == null) throw StateError('未配置 Supabase，不能删除线上记录');
+      await repository.deleteRecordAtomically(id);
+      var cleanupDeferred = false;
+      if (target?.photoPath case final photoPath?) {
         try {
-          await _queuePhotoCleanup(photoPath);
+          await _syncFromCloud(allowDuringMutation: true);
+          final remaining = records;
+          if (!remaining.any((record) => record.photoPath == photoPath)) {
+            await repository.deletePhoto(photoPath);
+            final file = await database.photoFile(photoPath);
+            if (await file.exists()) await file.delete();
+          }
         } catch (_) {
-          // 账本删除已经提交，诊断队列写入失败也必须刷新 UI 的真实状态。
+          cleanupDeferred = true;
+          try {
+            await _queuePhotoCleanup(photoPath);
+          } catch (_) {
+            // 账本删除已经提交，诊断队列写入失败也必须刷新 UI 的真实状态。
+          }
         }
       }
-    }
-    if (target?.photoPath == null) await syncFromCloud();
-    return cleanupDeferred;
+      if (target?.photoPath == null) {
+        await _syncFromCloud(allowDuringMutation: true);
+      }
+      return cleanupDeferred;
+    });
   }
 
   Future<void> _queuePhotoCleanup(String photoPath) async {
@@ -427,6 +478,24 @@ class AppController extends ChangeNotifier {
   Future<void> reloadHolidays() async {
     _holidays = await database.holidays();
     notifyListeners();
+  }
+
+  void _ensureMutationReady() {
+    if (syncing || _mutating) {
+      throw StateError('正在同步云端账本，请完成后再操作');
+    }
+  }
+
+  Future<T> _runCloudMutation<T>(Future<T> Function() action) async {
+    _ensureMutationReady();
+    _mutating = true;
+    notifyListeners();
+    try {
+      return await action();
+    } finally {
+      _mutating = false;
+      notifyListeners();
+    }
   }
 
   double get totalRemaining => records

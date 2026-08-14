@@ -34,6 +34,7 @@ class ReadOnlySupabaseSource {
   final String baseUrl;
   final String publishableKey;
   final int pageSize;
+  static const _requestTimeout = Duration(seconds: 12);
   static int? _parseTotal(String? contentRange) {
     if (contentRange == null || !contentRange.contains('/')) return null;
     return int.tryParse(contentRange.split('/').last);
@@ -56,14 +57,16 @@ class ReadOnlySupabaseSource {
           'limit': '$pageSize',
         },
       );
-      final response = await http.get(
-        uri,
-        headers: {
-          ..._headers,
-          'Prefer': 'count=exact',
-          'Range': '$offset-${offset + pageSize - 1}',
-        },
-      );
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              ..._headers,
+              'Prefer': 'count=exact',
+              'Range': '$offset-${offset + pageSize - 1}',
+            },
+          )
+          .timeout(_requestTimeout);
       if (response.statusCode != 200)
         throw HttpException('读取历史记录失败：${response.statusCode}');
       final page = (jsonDecode(response.body) as List<dynamic>)
@@ -85,12 +88,14 @@ class ReadOnlySupabaseSource {
         .split('/')
         .map(Uri.encodeComponent)
         .join('/');
-    final response = await http.get(
-      Uri.parse(
-        '$baseUrl/storage/v1/object/public/ot-record-photos/$encodedPath',
-      ),
-      headers: _headers,
-    );
+    final response = await http
+        .get(
+          Uri.parse(
+            '$baseUrl/storage/v1/object/public/ot-record-photos/$encodedPath',
+          ),
+          headers: _headers,
+        )
+        .timeout(_requestTimeout);
     if (response.statusCode != 200) throw HttpException('照片下载失败：$remotePath');
     return response.bodyBytes;
   }

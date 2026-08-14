@@ -1,4 +1,4 @@
-# OverBalanceFlow
+# 偷闲半日
 
 云端优先的 Android 加班调休账本。Supabase 保存权威数据，Flutter + SQLite 提供离线只读缓存，ZIP 提供独立备份与云端恢复。
 

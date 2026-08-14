@@ -8,6 +8,6 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final database = await LocalDatabase.open();
   final controller = AppController(database);
-  await controller.initialize();
   runApp(OverBalanceFlowApp(controller: controller));
+  await controller.initialize();
 }

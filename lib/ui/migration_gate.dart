@@ -89,7 +89,7 @@ class MigrationGate extends StatelessWidget {
 
   Future<void> _restore(BuildContext context) async {
     const group = XTypeGroup(
-      label: 'OverBalanceFlow ZIP 备份',
+      label: '偷闲半日 ZIP 备份',
       extensions: ['zip'],
     );
     final selected = await openFile(acceptedTypeGroups: [group]);
