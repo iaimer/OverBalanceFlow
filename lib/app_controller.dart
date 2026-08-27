@@ -16,9 +16,9 @@ import 'domain/holiday_calendar.dart';
 import 'domain/overtime_record.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this.database)
+  AppController(this.database, {SupabaseRepository? remoteOverride})
     : backupService = BackupService(database),
-      remote = _buildRemote(),
+      remote = remoteOverride ?? _buildRemote(),
       _holidays = HolidayCalendar(HolidayCalendar.defaults2026);
 
   final LocalDatabase database;
@@ -323,6 +323,14 @@ class AppController extends ChangeNotifier {
       if (hours <= 0) throw StateError('时间无效或时长不足 0.5 小时');
       final repository = remote;
       if (repository == null) throw StateError('未配置 Supabase，不能新增线上记录');
+      final dateText = _date(date);
+      final conflicts = findOverlappingOvertime(
+        records,
+        date: dateText,
+        startTime: start,
+        endTime: end,
+      );
+      if (conflicts.isNotEmpty) throw OvertimeOverlapException(conflicts);
       final recordId = _uuid.v4();
       String? remotePhoto;
       List<int>? photoBytes;
@@ -340,10 +348,10 @@ class AppController extends ChangeNotifier {
         );
       }
       try {
-        await repository.upsertRecords([
+        await repository.saveOvertimeAtomically(
           OvertimeRecord(
             id: recordId,
-            otDate: _date(date),
+            otDate: dateText,
             startTime: start,
             endTime: end,
             duration: hours,
@@ -354,7 +362,8 @@ class AppController extends ChangeNotifier {
             createdAt: DateTime.now().toUtc().toIso8601String(),
             photoPath: remotePhoto,
           ),
-        ]);
+          allowInsert: true,
+        );
       } catch (_) {
         if (remotePhoto != null) {
           try {
@@ -370,6 +379,48 @@ class AppController extends ChangeNotifier {
           remotePhoto,
         )).writeAsBytes(photoBytes, flush: true);
       }
+      await _syncFromCloud(allowDuringMutation: true);
+    });
+  }
+
+  Future<void> updateOvertime({
+    required String id,
+    required DateTime date,
+    required String start,
+    required String end,
+    required String memo,
+  }) async {
+    await _runCloudMutation(() async {
+      final target = records.where((record) => record.id == id).firstOrNull;
+      if (target == null) throw StateError('加班记录不存在，请刷新后重试');
+      if (target.isLeave) throw StateError('调休记录不能编辑');
+      final hours = duration(start, end, date);
+      if (hours <= 0) throw StateError('时间无效或时长不足 0.5 小时');
+      final repository = remote;
+      if (repository == null) throw StateError('未配置 Supabase，不能编辑线上记录');
+      final dateText = _date(date);
+      final conflicts = findOverlappingOvertime(
+        records,
+        date: dateText,
+        startTime: start,
+        endTime: end,
+        excludingId: id,
+      );
+      if (conflicts.isNotEmpty) throw OvertimeOverlapException(conflicts);
+      final editedBalance = calculateOvertimeEditBalance(target, hours);
+      await repository.saveOvertimeAtomically(
+        target.copyWith(
+          otDate: dateText,
+          startTime: start,
+          endTime: end,
+          duration: hours,
+          totalHours: hours,
+          remainingHours: editedBalance.remainingHours,
+          status: editedBalance.status,
+          memo: memo,
+        ),
+        allowInsert: false,
+      );
       await _syncFromCloud(allowDuringMutation: true);
     });
   }

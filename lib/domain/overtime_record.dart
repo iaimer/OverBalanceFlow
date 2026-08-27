@@ -80,20 +80,27 @@ class OvertimeRecord {
   };
 
   OvertimeRecord copyWith({
+    String? otDate,
+    String? startTime,
+    String? endTime,
+    double? duration,
+    double? totalHours,
     double? remainingHours,
     String? status,
+    String? memo,
+    String? createdAt,
     String? photoPath,
   }) => OvertimeRecord(
     id: id,
-    otDate: otDate,
-    startTime: startTime,
-    endTime: endTime,
-    duration: duration,
-    totalHours: totalHours,
+    otDate: otDate ?? this.otDate,
+    startTime: startTime ?? this.startTime,
+    endTime: endTime ?? this.endTime,
+    duration: duration ?? this.duration,
+    totalHours: totalHours ?? this.totalHours,
     remainingHours: remainingHours ?? this.remainingHours,
     status: status ?? this.status,
-    memo: memo,
-    createdAt: createdAt,
+    memo: memo ?? this.memo,
+    createdAt: createdAt ?? this.createdAt,
     photoPath: photoPath ?? this.photoPath,
   );
 

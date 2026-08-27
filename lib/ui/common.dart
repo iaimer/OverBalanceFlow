@@ -30,10 +30,12 @@ class RecordTile extends StatelessWidget {
     required this.record,
     required this.controller,
     this.compact = false,
+    this.onEdit,
   });
   final OvertimeRecord record;
   final AppController controller;
   final bool compact;
+  final Future<void> Function()? onEdit;
 
   @override
   Widget build(BuildContext context) => ListTile(
@@ -45,15 +47,16 @@ class RecordTile extends StatelessWidget {
           : '${record.status} · 余额 ${record.remainingHours.toStringAsFixed(1)}h',
     ),
     trailing: const Icon(Icons.chevron_right),
-    onTap: () => showRecordDetails(context, record, controller),
+    onTap: () => showRecordDetails(context, record, controller, onEdit: onEdit),
   );
 }
 
 Future<void> showRecordDetails(
   BuildContext context,
   OvertimeRecord record,
-  AppController controller,
-) async {
+  AppController controller, {
+  Future<void> Function()? onEdit,
+}) async {
   final leaveDeductions = record.isLeave
       ? _leaveDeductions(record, controller.records)
       : const <_LeaveDeduction>[];
@@ -64,7 +67,7 @@ Future<void> showRecordDetails(
           record.photoPath!.startsWith('photos/') ? '' : 'photos',
           record.photoPath,
         );
-  await showModalBottomSheet<void>(
+  final action = await showModalBottomSheet<_RecordDetailsAction>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
@@ -121,6 +124,18 @@ Future<void> showRecordDetails(
                 ),
               ],
               const SizedBox(height: 20),
+              if (!record.isLeave && onEdit != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑记录'),
+                    onPressed: () =>
+                        Navigator.pop(sheetContext, _RecordDetailsAction.edit),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               OutlinedButton.icon(
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('删除记录'),
@@ -163,6 +178,48 @@ Future<void> showRecordDetails(
       ),
     ),
   );
+  if (action == _RecordDetailsAction.edit && context.mounted) {
+    await onEdit?.call();
+  }
+}
+
+enum _RecordDetailsAction { edit }
+
+class OvertimeConflictNotice extends StatelessWidget {
+  const OvertimeConflictNotice({super.key, required this.conflicts});
+
+  final List<OvertimeRecord> conflicts;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = Theme.of(context).colorScheme.error;
+    final ranges = conflicts
+        .map(
+          (record) => '${record.otDate} ${record.startTime}–${record.endTime}',
+        )
+        .join('、');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: error.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 20, color: error),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '与已有加班记录重叠：$ranges。请修改日期或时间后再保存。',
+              style: TextStyle(color: error, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 List<_LeaveDeduction> _leaveDeductions(

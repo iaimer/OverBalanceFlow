@@ -4,6 +4,7 @@ import '../app_controller.dart';
 import '../domain/overtime_record.dart';
 import 'common.dart';
 import 'app_palette.dart';
+import 'overtime_editor_page.dart';
 
 enum RecordFilter { all, overtime, leave }
 
@@ -106,10 +107,28 @@ class _StatsPageState extends State<StatsPage> {
             child: Center(child: Text('没有符合条件的记录')),
           ),
         ...filtered.map(
-          (record) => RecordTile(record: record, controller: widget.controller),
+          (record) => RecordTile(
+            record: record,
+            controller: widget.controller,
+            onEdit: record.isLeave ? null : () => _openEditor(record),
+          ),
         ),
       ],
     );
+  }
+
+  Future<void> _openEditor(OvertimeRecord record) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) =>
+            OvertimeEditorPage(controller: widget.controller, record: record),
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('加班记录已更新')));
+    }
   }
 }
 

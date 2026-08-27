@@ -22,6 +22,7 @@
 - 云端同步必须完整获取后再事务替换缓存；远端空结果不得覆盖已有缓存。
 - schema 升级必须显式实现事务迁移并创建恢复点；当前未知版本直接失败。
 - 核销和删除返还必须通过 PostgreSQL RPC 在单一远端事务内完成。
+- 加班新增和编辑必须通过 `save_ot_record_atomic(payload, allow_insert)`；新增传 `true`，编辑传 `false`，编辑目标不存在时必须失败，禁止用普通 upsert 代替。
 - ZIP 恢复必须先验证 manifest、逐文件哈希和照片引用，再按 UUID 合并到 Supabase。
 - `.migration-baselines/` 含真实历史，只能本机只读保存，永不提交 Git。
 - 涉及 Supabase RPC、RLS 或 Storage policy 的 SQL 只能审阅后人工执行，禁止测试代码写生产数据。
@@ -33,6 +34,7 @@
 - FIFO 按 `ot_date`、`created_at`、UUID 升序稳定排序，必须先预览再执行。
 - 状态仅允许：`待核销 | 部分核销 | 已结清 | 已调休`。
 - 调休存根 `duration/total_hours` 为负数，`memo` 保持 `{id,deduct,info}` 数组。
+- 同一日期的加班时间段按左闭右开区间判断重叠；新增和编辑在本地预检，并由云端 RPC 再次校验，调休记录不参与重叠判断。
 - 记加班页显示最近两条非调休记录；完整历史位于统计页。
 - 记加班固定使用珊瑚橙主题，记调休固定使用深青主题；不要用单一主题色抹平业务差异。
 
