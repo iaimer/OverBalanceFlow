@@ -50,25 +50,50 @@ class SupabaseRepository {
 
   Future<void> upsertRecords(List<OvertimeRecord> records) async {
     if (records.isEmpty) return;
-    final response = await http.post(
-      Uri.parse(
-        '${config.url}/rest/v1/ot_records',
-      ).replace(queryParameters: {'on_conflict': 'id'}),
-      headers: {
-        ..._headers,
-        'Prefer': 'resolution=merge-duplicates,return=minimal',
-      },
-      body: jsonEncode(records.map((record) => record.toMap()).toList()),
-    );
+    final response = await http
+        .post(
+          Uri.parse(
+            '${config.url}/rest/v1/ot_records',
+          ).replace(queryParameters: {'on_conflict': 'id'}),
+          headers: {
+            ..._headers,
+            'Prefer': 'resolution=merge-duplicates,return=minimal',
+          },
+          body: jsonEncode(records.map((record) => record.toMap()).toList()),
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '写入线上账本');
   }
 
+  /// 通过数据库事务新增或编辑一条加班记录。
+  ///
+  /// RPC 会在服务端重新校验时间段重叠，并根据原记录的核销历史计算余额，
+  /// 因此不能用普通 upsert 替代。
+  Future<void> saveOvertimeAtomically(
+    OvertimeRecord record, {
+    required bool allowInsert,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('${config.url}/rest/v1/rpc/save_ot_record_atomic'),
+          headers: _headers,
+          body: jsonEncode({
+            'payload': record.toMap(),
+            'allow_insert': allowInsert,
+          }),
+        )
+        .timeout(_requestTimeout);
+    _ensureSuccess(response, '原子保存加班记录');
+  }
+
   Future<void> deleteRecordAtomically(String id) async {
-    final response = await http.post(
-      Uri.parse('${config.url}/rest/v1/rpc/delete_ot_record_atomic'),
-      headers: _headers,
-      body: jsonEncode({'target_id': id}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('${config.url}/rest/v1/rpc/delete_ot_record_atomic'),
+          headers: _headers,
+          body: jsonEncode({'target_id': id}),
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '原子删除线上记录');
   }
 
@@ -76,14 +101,16 @@ class SupabaseRepository {
     OvertimeRecord leave,
     List<ReconciliationDetail> details,
   ) async {
-    final response = await http.post(
-      Uri.parse('${config.url}/rest/v1/rpc/reconcile_ot_atomic'),
-      headers: _headers,
-      body: jsonEncode({
-        'leave_record': leave.toMap(),
-        'deductions': details.map((detail) => detail.toMap()).toList(),
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('${config.url}/rest/v1/rpc/reconcile_ot_atomic'),
+          headers: _headers,
+          body: jsonEncode({
+            'leave_record': leave.toMap(),
+            'deductions': details.map((detail) => detail.toMap()).toList(),
+          }),
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '原子核销线上余额');
   }
 
@@ -93,16 +120,18 @@ class SupabaseRepository {
     required String contentType,
   }) async {
     final encoded = remotePath.split('/').map(Uri.encodeComponent).join('/');
-    final response = await http.post(
-      Uri.parse('${config.url}/storage/v1/object/$bucket/$encoded'),
-      headers: {
-        'apikey': config.key,
-        'Authorization': 'Bearer ${config.key}',
-        'Content-Type': contentType,
-        'x-upsert': 'false',
-      },
-      body: bytes,
-    );
+    final response = await http
+        .post(
+          Uri.parse('${config.url}/storage/v1/object/$bucket/$encoded'),
+          headers: {
+            'apikey': config.key,
+            'Authorization': 'Bearer ${config.key}',
+            'Content-Type': contentType,
+            'x-upsert': 'false',
+          },
+          body: bytes,
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '上传照片');
   }
 
@@ -119,13 +148,15 @@ class SupabaseRepository {
   }
 
   Future<void> deletePhoto(String remotePath) async {
-    final response = await http.delete(
-      Uri.parse('${config.url}/storage/v1/object/$bucket'),
-      headers: _headers,
-      body: jsonEncode({
-        'prefixes': [remotePath],
-      }),
-    );
+    final response = await http
+        .delete(
+          Uri.parse('${config.url}/storage/v1/object/$bucket'),
+          headers: _headers,
+          body: jsonEncode({
+            'prefixes': [remotePath],
+          }),
+        )
+        .timeout(_requestTimeout);
     _ensureSuccess(response, '清理线上照片');
   }
 

@@ -137,3 +137,38 @@ a272ed8 — add overtime photo records
 ### 最终结果
 - 离线新增后核销、离线新增后删除、同步失败保留队列、依赖延迟重放均通过模拟验证
 - 页面、列表和最近记录通过浏览器冒烟测试，控制台无错误
+
+---
+
+## 2026-08-27 — 加班记录编辑与重叠保护
+
+### 讨论内容
+
+- 发现同一天存在时间段重叠的加班记录，需要支持修正日期、起止时间和备注。
+- 审查后补充云端写入超时、编辑余额回归、云端失败缓存保护和并发编辑保护。
+
+### 决策 & 原因
+
+- 新增和编辑统一走 `save_ot_record_atomic`；通过 `allow_insert` 明确区分新增与编辑，编辑目标不存在时拒绝写入。
+- 本地先检查同日重叠，云端 RPC 再次检查；编辑保留历史已核销小时数并重算剩余余额。
+- 编辑页监听账本变化，发现远端日期、时间、备注或照片变化时阻止旧字段覆盖新记录。
+- ZIP 恢复继续作为经过 manifest、哈希和账本校验的受控 UUID 合并例外，不作为日常录入入口。
+
+### 改动文件清单
+
+- `lib/domain/business_rules.dart`：重叠判断、编辑余额计算和异常类型
+- `lib/data/supabase_repository.dart`：原子保存接口、请求超时
+- `lib/app_controller.dart`：新增/编辑云端写入与缓存刷新
+- `lib/ui/common.dart`、`lib/ui/overtime_page.dart`、`lib/ui/stats_page.dart`、`lib/ui/overtime_editor_page.dart`：编辑入口、表单和并发提示
+- `docs/supabase_cloud_ledger.sql`、`docs/MIGRATION_AND_RECOVERY.md`：RPC 与权限/恢复说明
+- `test/business_rules_test.dart`、`test/app_controller_test.dart`：业务和云端失败回归测试
+
+### 遇到的问题
+
+- 正式版首次安装时使用了旧的 Flutter 增量构建产物，清理缓存后重新构建并在真机确认编辑按钮出现。
+- Supabase `ot_records` 当前没有 `updated_at` 审计字段，线上核对只能确认当前值，不能还原具体编辑时间。
+
+### 最终结果
+
+- `flutter test` 32 项全部通过，`flutter analyze` 无问题，debugging 与 production release APK 均构建成功。
+- 正式版已在真机覆盖安装并验证详情页显示“编辑记录”。

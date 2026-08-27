@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../app_controller.dart';
+import '../domain/business_rules.dart';
 import '../domain/holiday_calendar.dart';
+import '../domain/overtime_record.dart';
 import 'common.dart';
 import 'app_palette.dart';
+import 'overtime_editor_page.dart';
 
 class OvertimePage extends StatefulWidget {
   const OvertimePage({super.key, required this.controller});
@@ -35,6 +38,12 @@ class _OvertimePageState extends State<OvertimePage> {
         .take(2)
         .toList();
     final estimated = widget.controller.duration(start, end, date);
+    final conflicts = findOverlappingOvertime(
+      widget.controller.records,
+      date: _dateText(date),
+      startTime: start,
+      endTime: end,
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
@@ -136,6 +145,10 @@ class _OvertimePageState extends State<OvertimePage> {
             ],
           ),
         ),
+        if (conflicts.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          OvertimeConflictNotice(conflicts: conflicts),
+        ],
         const SizedBox(height: 12),
         TextField(
           controller: memo,
@@ -185,7 +198,7 @@ class _OvertimePageState extends State<OvertimePage> {
             backgroundColor: AppPalette.coralDeep,
             foregroundColor: AppPalette.surface,
           ),
-          onPressed: saving ? null : _save,
+          onPressed: saving || conflicts.isNotEmpty ? null : _save,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Text(saving ? '正在保存…' : '保存加班'),
@@ -209,6 +222,7 @@ class _OvertimePageState extends State<OvertimePage> {
             record: record,
             controller: widget.controller,
             compact: true,
+            onEdit: () => _openEditor(record),
           ),
         ),
       ],
@@ -249,6 +263,23 @@ class _OvertimePageState extends State<OvertimePage> {
     );
     if (value != null && mounted) setState(() => photo = value);
   }
+
+  Future<void> _openEditor(OvertimeRecord record) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) =>
+            OvertimeEditorPage(controller: widget.controller, record: record),
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('加班记录已更新')));
+    }
+  }
+
+  static String _dateText(DateTime value) =>
+      value.toIso8601String().substring(0, 10);
 }
 
 class _Picker extends StatelessWidget {

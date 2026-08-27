@@ -7,6 +7,7 @@
 - 四个入口：记加班、记调休、统计、设置
 - 加班珊瑚橙、调休深青绿的双主题界面，可快速辨认当前业务页面
 - 工作日/节假日加班时长规则与 FIFO 调休核销
+- 加班记录可编辑日期、时间和备注；同日重叠时间段会在保存前拦截
 - 相机或相册保存打卡照片
 - 完整历史、核销明细、删除调休后的事务返还
 - Supabase 云端读写、联网刷新与 SQLite 离线只读缓存
@@ -15,7 +16,7 @@
 
 ## 数据安全
 
-Supabase 是权威账本；新增、FIFO 核销、删除和 ZIP 恢复只有在云端确认成功后才刷新 SQLite 缓存。断网时可以查看最后一次完整缓存和导出备份，但不会把未确认写入伪装为成功。调试版包名为 `org.femkits.overbalanceflow.debug`，正式版为 `org.femkits.overbalanceflow`，两者的缓存目录完全隔离。
+Supabase 是权威账本；新增、编辑、FIFO 核销、删除和 ZIP 恢复只有在云端确认成功后才刷新 SQLite 缓存。加班新增/编辑通过带重叠和余额校验的原子 RPC，编辑期间若检测到远端记录变化会要求重新打开。断网时可以查看最后一次完整缓存和导出备份，但不会把未确认写入伪装为成功。调试版包名为 `org.femkits.overbalanceflow.debug`，正式版为 `org.femkits.overbalanceflow`，两者的缓存目录完全隔离。
 
 迁移前只读基线保存在本机 `.migration-baselines/`，该目录被 Git 忽略。当前基线为 58 条记录、总加班 97.0h、余额 16.0h。不要把真实记录、Supabase key 或签名材料提交到 Git。
 
@@ -45,7 +46,7 @@ flutter run --flavor debugging \
   --dart-define=SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 ```
 
-核销和删除依赖 [Supabase 原子 RPC](docs/supabase_cloud_ledger.sql)，必须先在 SQL Editor 审阅和部署；不得在客户端用多次普通请求模拟事务。
+新增、编辑、核销和删除依赖 [Supabase 原子 RPC](docs/supabase_cloud_ledger.sql)，必须先在 SQL Editor 审阅和部署；不得在客户端用多次普通请求模拟事务。
 
 正式 APK 需要创建独立 release keystore，并在 `android/key.properties` 配置；这两个文件均被 Git 忽略。
 
