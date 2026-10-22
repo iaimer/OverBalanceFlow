@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import java.util.Base64
 
 plugins {
     id("com.android.application")
@@ -91,6 +92,28 @@ tasks.configureEach {
         doFirst {
             if (!keystorePropertiesFile.exists()) {
                 throw GradleException("productionRelease 必须配置 android/key.properties 和独立 release keystore")
+            }
+            val buildDefines = (project.findProperty("dart-defines") as? String)
+                .orEmpty().split(",").filter { it.isNotEmpty() }.associate {
+                    val decoded = String(Base64.getDecoder().decode(it), Charsets.UTF_8)
+                    decoded.substringBefore("=") to decoded.substringAfter("=", "")
+                }
+            val supabaseUrl = buildDefines["SUPABASE_URL"].orEmpty()
+            val supabaseKey = buildDefines["SUPABASE_PUBLISHABLE_KEY"].orEmpty()
+            if (supabaseUrl.isBlank() || supabaseKey.isBlank()) {
+                throw GradleException("productionRelease 必须注入 SUPABASE_URL 和 SUPABASE_PUBLISHABLE_KEY；请使用 --dart-define-from-file")
+            }
+            val publicKey = if (supabaseKey.startsWith("sb_publishable_")) {
+                true
+            } else {
+                runCatching {
+                    val payload = String(Base64.getUrlDecoder().decode(supabaseKey.split(".")[1]), Charsets.UTF_8)
+                    val claims = groovy.json.JsonSlurper().parseText(payload) as Map<*, *>
+                    claims["role"] == "anon"
+                }.getOrDefault(false)
+            }
+            if (!publicKey) {
+                throw GradleException("productionRelease 只能使用 publishable 或 anon 客户端密钥")
             }
         }
     }

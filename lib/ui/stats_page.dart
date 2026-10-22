@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../domain/overtime_record.dart';
+import '../domain/annual_leave.dart';
+import 'reconcile_page.dart';
+import 'annual_leave_widgets.dart';
 import 'common.dart';
 import 'app_palette.dart';
 import 'overtime_editor_page.dart';
 
-enum RecordFilter { all, overtime, leave }
+enum RecordFilter { all, overtime, leave, annual }
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key, required this.controller});
@@ -26,36 +29,86 @@ class _StatsPageState extends State<StatsPage> {
       filtered = filtered.where((record) => !record.isLeave).toList();
     if (filter == RecordFilter.leave)
       filtered = filtered.where((record) => record.isLeave).toList();
+    if (filter == RecordFilter.annual) filtered = [];
+    final entries =
+        <({String date, String id, Widget tile})>[
+          for (final record in filtered)
+            (
+              date: record.otDate,
+              id: record.id,
+              tile: RecordTile(
+                record: record,
+                controller: widget.controller,
+                onEdit: () => _openEditor(record),
+              ),
+            ),
+          if (filter == RecordFilter.all || filter == RecordFilter.annual)
+            for (final record in widget.controller.annualRecords)
+              (
+                date: record.startDate,
+                id: record.id,
+                tile: AnnualLeaveTile(
+                  record: record,
+                  controller: widget.controller,
+                  onEdit: () => _openAnnualEditor(record),
+                ),
+              ),
+        ]..sort((a, b) {
+          final order = b.date.compareTo(a.date);
+          return order != 0 ? order : b.id.compareTo(a.id);
+        });
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-          decoration: BoxDecoration(
-            color: AppPalette.tealDeep,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                '可用调休余额',
-                style: TextStyle(color: AppPalette.tealSoft),
-              ),
-              Text(
-                '${widget.controller.totalRemaining.toStringAsFixed(1)} 小时',
-                style: const TextStyle(
-                  color: AppPalette.surface,
-                  fontSize: 34,
-                  height: 1.25,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
+              Expanded(
+                child: Container(
+                  key: const Key('comp-balance-card'),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppPalette.tealDeep,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            '可用调休',
+                            style: TextStyle(color: AppPalette.tealSoft),
+                          ),
+                          HelpTooltip(
+                            message: '调休按 FIFO 核销，优先使用最早加班记录的可用余额。',
+                            color: AppPalette.tealSoft,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${widget.controller.totalRemaining.toStringAsFixed(1)} 小时',
+                        style: const TextStyle(
+                          color: AppPalette.surface,
+                          fontSize: 28,
+                          height: 1.25,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                '按最早加班记录优先核销',
-                style: TextStyle(color: AppPalette.tealSoft),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AnnualLeaveSummary(
+                  key: const Key('annual-balance-card'),
+                  balance: widget.controller.annualBalance(DateTime.now().year),
+                ),
               ),
             ],
           ),
@@ -83,36 +136,32 @@ class _StatsPageState extends State<StatsPage> {
           ],
         ),
         const SizedBox(height: 28),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Text('全部记录', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
-            Text('全部记录', style: Theme.of(context).textTheme.titleMedium),
-            SegmentedButton<RecordFilter>(
-              segments: const [
-                ButtonSegment(value: RecordFilter.all, label: Text('全部')),
-                ButtonSegment(value: RecordFilter.overtime, label: Text('加班')),
-                ButtonSegment(value: RecordFilter.leave, label: Text('调休')),
-              ],
-              selected: {filter},
-              onSelectionChanged: (value) =>
-                  setState(() => filter = value.single),
-              showSelectedIcon: false,
-            ),
+            for (final entry in const {
+              RecordFilter.all: '全部',
+              RecordFilter.overtime: '加班',
+              RecordFilter.leave: '调休',
+              RecordFilter.annual: '年假',
+            }.entries)
+              ChoiceChip(
+                label: Text(entry.value),
+                selected: filter == entry.key,
+                onSelected: (_) => setState(() => filter = entry.key),
+              ),
           ],
         ),
         const SizedBox(height: 8),
-        if (filtered.isEmpty)
+        if (entries.isEmpty)
           const Padding(
             padding: EdgeInsets.all(24),
             child: Center(child: Text('没有符合条件的记录')),
           ),
-        ...filtered.map(
-          (record) => RecordTile(
-            record: record,
-            controller: widget.controller,
-            onEdit: record.isLeave ? null : () => _openEditor(record),
-          ),
-        ),
+        ...entries.map((entry) => entry.tile),
       ],
     );
   }
@@ -120,15 +169,37 @@ class _StatsPageState extends State<StatsPage> {
   Future<void> _openEditor(OvertimeRecord record) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (context) =>
-            OvertimeEditorPage(controller: widget.controller, record: record),
+        builder: (context) => record.isLeave
+            ? Scaffold(
+                appBar: AppBar(title: const Text('编辑调休')),
+                body: ReconcilePage(
+                  controller: widget.controller,
+                  leaveRecord: record,
+                ),
+              )
+            : OvertimeEditorPage(controller: widget.controller, record: record),
       ),
     );
     if (saved == true && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('加班记录已更新')));
+      ).showSnackBar(const SnackBar(content: Text('记录已更新')));
     }
+  }
+
+  Future<void> _openAnnualEditor(AnnualLeaveRecord record) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('编辑年假')),
+          body: ReconcilePage(
+            controller: widget.controller,
+            annualRecord: record,
+          ),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 }
 

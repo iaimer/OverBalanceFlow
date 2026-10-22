@@ -40,7 +40,7 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          ['记加班', '记调休', '统计', '设置'][index],
+          ['记加班', '记请假', '统计', '设置'][index],
           style: TextStyle(color: sectionColor),
         ),
       ),
@@ -82,12 +82,12 @@ class _HomeShellState extends State<HomeShell> {
               label: '记加班',
             ),
             NavigationDestination(
-              icon: _dockIcon('assets/icons/leave-dock-candidate.svg', '记调休'),
+              icon: _dockIcon('assets/icons/leave-dock-candidate.svg', '记请假'),
               selectedIcon: _dockIcon(
                 'assets/icons/leave-dock-candidate.svg',
-                '记调休',
+                '记请假',
               ),
-              label: '记调休',
+              label: '记请假',
             ),
             NavigationDestination(
               icon: Icon(Icons.query_stats_outlined),

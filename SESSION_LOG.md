@@ -172,3 +172,30 @@ a272ed8 — add overtime photo records
 
 - `flutter test` 32 项全部通过，`flutter analyze` 无问题，debugging 与 production release APK 均构建成功。
 - 正式版已在真机覆盖安装并验证详情页显示“编辑记录”。
+
+---
+
+## 2026-09-18 — 加班录入状态与结束时间便捷选择
+
+### 讨论内容
+
+- 保存成功后当前表单未清空日期和时间，重新同步账本时把刚保存记录显示成自己的重叠记录。
+- 亮色主题的冲突提示文字与 `errorContainer` 背景同色，截图中只显示红色色块。
+- 新增加班时，希望结束时间选择器在当天默认定位设备当前时分。
+
+### 决策 & 原因
+
+- 录入页使用 `editing/saving/saved` 三态；保存后保留日期和时间供核对，修改任一字段后才恢复下一条录入。
+- 只为新增加班页的当天结束时间传入当前时分；编辑页、记调休页和历史日期继续使用字段原值。
+- 错误提示使用显式的 `errorContainer/onErrorContainer` 语义色，服务端 RPC 和数据库结构不变。
+
+### 改动文件清单
+
+- `lib/ui/overtime_page.dart`：保存状态、自冲突抑制、当天结束时间初始值
+- `lib/ui/common.dart`、`lib/app.dart`：时间选择器扩展与错误提示配色
+- `test/overtime_page_test.dart`、`test/app_controller_test.dart`：页面、颜色、重复点击和单次云端保存回归测试
+
+### 最终结果
+
+- `flutter test` 38 项全部通过，`flutter analyze` 无问题。
+- 正式版 production APK 构建成功；本次验证时没有连接 Android 设备，因此尚未进行真机覆盖安装。

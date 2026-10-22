@@ -3,6 +3,7 @@ node_modules/
 *.log
 .env
 .env.local
+.supabase.production.json
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -11,6 +12,7 @@ node_modules/
 *.iml
 build/
 android/.gradle/
+android/.kotlin/
 android/key.properties
 android/app/*.jks
 android/app/*.keystore

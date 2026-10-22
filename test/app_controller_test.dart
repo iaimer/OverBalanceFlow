@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:over_balance_flow/app_controller.dart';
 import 'package:over_balance_flow/data/local_database.dart';
 import 'package:over_balance_flow/data/supabase_repository.dart';
 import 'package:over_balance_flow/domain/business_rules.dart';
+import 'package:over_balance_flow/domain/annual_leave.dart';
 import 'package:over_balance_flow/domain/overtime_record.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -48,8 +50,27 @@ void main() {
     expect(remote.saved!.status, '部分核销');
     expect(remote.lastAllowInsert, isFalse);
     expect(remote.fetchCount, 1);
-    final cached = (await database.records()).single;
+    final cached = (await database.records()).firstWhere(
+      (r) => r.id == target.id,
+    );
     expect(cached.toMap(), remote.saved!.toMap());
+  });
+
+  test('新增成功只发起一次云端保存并刷新一次缓存', () async {
+    final remote = FakeSupabaseRepository()..targetExists = false;
+    final controller = AppController(database, remoteOverride: remote);
+
+    await controller.addOvertime(
+      date: DateTime(2026, 8, 8),
+      start: '09:00',
+      end: '13:00',
+      memo: '一次新增',
+    );
+
+    expect(remote.saveCalls, 1);
+    expect(remote.fetchCount, 1);
+    expect(controller.records, hasLength(1));
+    expect(await database.records(), hasLength(1));
   });
 
   test('新增同日重叠时间段时在发起云端写入前拒绝', () async {
@@ -128,12 +149,40 @@ class FakeSupabaseRepository extends SupabaseRepository {
   bool? lastAllowInsert;
   bool targetExists = true;
   int fetchCount = 0;
+  int saveCalls = 0;
 
   @override
-  Future<List<OvertimeRecord>> fetchAll() async {
+  Future<LedgerSnapshot> fetchLedger() async {
     fetchCount++;
     final current = saved;
-    return current == null ? const [] : [current];
+    return LedgerSnapshot(
+      current == null
+          ? const []
+          : [
+              current,
+              if (current.duration > current.remainingHours)
+                OvertimeRecord(
+                  id: 'historical-leave',
+                  otDate: '2026-08-09',
+                  startTime: '08:30',
+                  endTime: '11:30',
+                  duration: current.remainingHours - current.duration,
+                  totalHours: current.remainingHours - current.duration,
+                  remainingHours: 0,
+                  status: '已调休',
+                  memo: jsonEncode([
+                    {
+                      'id': current.id,
+                      'deduct': current.duration - current.remainingHours,
+                      'info': '',
+                    },
+                  ]),
+                  createdAt: '2026-08-09T00:00:00Z',
+                ),
+            ],
+      [],
+      LeaveCalendar.builtin2026,
+    );
   }
 
   @override
@@ -141,6 +190,7 @@ class FakeSupabaseRepository extends SupabaseRepository {
     OvertimeRecord record, {
     required bool allowInsert,
   }) async {
+    saveCalls++;
     final error = saveError;
     if (error != null) throw error;
     if (!allowInsert && !targetExists) {

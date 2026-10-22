@@ -3,7 +3,7 @@
 
 -- 新增或编辑加班记录：服务端重检同日时间重叠，并保留已核销小时数。
 -- 日常新增和编辑都应使用此 RPC，不要用普通 upsert 绕过校验。
--- ZIP 恢复是经过 manifest、哈希和账本校验的受控合并例外，仍由恢复流程调用 upsert。
+-- 新版 ZIP 恢复通过 supabase_annual_leave.sql 中的跨表事务 RPC 合并。
 -- allow_insert=true 仅用于新增；编辑必须传 false，目标不存在时会失败，
 -- 防止过期缓存把已经删除的记录悄悄重新插入。
 drop function if exists public.save_ot_record_atomic(jsonb);
@@ -30,6 +30,7 @@ declare
   conflict_label text;
   target_exists boolean;
 begin
+  perform pg_advisory_xact_lock(186542, 1);
   if payload is null
     or payload->>'id' is null
     or payload->>'ot_date' is null
@@ -170,6 +171,7 @@ declare
   source public.ot_records%rowtype;
   restored numeric;
 begin
+  perform pg_advisory_xact_lock(186542, 1);
   select * into target from public.ot_records
   where id = target_id for update;
   if not found then raise exception '记录不存在'; end if;
@@ -217,6 +219,7 @@ declare
   source public.ot_records%rowtype;
   remaining numeric;
 begin
+  perform pg_advisory_xact_lock(186542, 1);
   if jsonb_array_length(deductions) = 0
     or (leave_record->>'status') <> '已调休'
     or (leave_record->>'duration')::numeric >= 0

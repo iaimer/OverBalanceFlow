@@ -81,11 +81,22 @@ class _OvertimeEditorPageState extends State<OvertimeEditorPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
-        Text(
-          consumed > 0
-              ? '已保留 ${consumed.toStringAsFixed(1)} 小时的历史核销，新的时长不能低于这个数。'
-              : '可以修正日期、时间和备注，原打卡照片会保留。',
-          style: const TextStyle(color: AppPalette.inkMuted),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                consumed > 0
+                    ? '已保留 ${consumed.toStringAsFixed(1)} 小时的历史核销'
+                    : '编辑记录',
+                style: const TextStyle(color: AppPalette.inkMuted),
+              ),
+            ),
+            HelpTooltip(
+              message: consumed > 0
+                  ? '新的时长不能低于已保留的历史核销量。'
+                  : '可以修正日期、时间和备注，原打卡照片会保留。',
+            ),
+          ],
         ),
         if (_remoteChanged) ...[
           const SizedBox(height: 12),

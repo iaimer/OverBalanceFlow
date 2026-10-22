@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/overtime_record.dart';
+import '../domain/annual_leave.dart';
 import '../domain/ledger_validator.dart';
 import 'data_fingerprint.dart';
 import 'local_database.dart';
@@ -14,11 +15,14 @@ import 'supabase_repository.dart';
 
 class BackupService {
   BackupService(this.database);
-  static const formatVersion = 1;
+  static const formatVersion = 2;
   final LocalDatabase database;
 
   Future<File> exportTo(Directory destination) async {
     final records = await database.records();
+    final annual = await database.annualRecords();
+    validateAnnualLedger(annual, records);
+    final calendar = await database.leaveCalendar();
     final holidays = await database.db.query('holiday_calendar');
     final fingerprint = DataFingerprint.fromRecords(records);
     final staging = await Directory.systemTemp.createTemp('obf-export-');
@@ -32,6 +36,16 @@ class BackupService {
       await calendarFile.writeAsString(jsonEncode(holidays), flush: true);
       final photoDirectory = await database.photosDirectory();
       final hashes = <String, String>{};
+      for (final entry in <String, Object>{
+        'annual_leave.json': annual.map((r) => r.toMap()).toList(),
+        'leave_calendar.json': calendar.rows,
+      }.entries) {
+        final bytes = utf8.encode(jsonEncode(entry.value));
+        await File(
+          p.join(staging.path, entry.key),
+        ).writeAsBytes(bytes, flush: true);
+        hashes[entry.key] = sha256.convert(bytes).toString();
+      }
       final referencedPhotos = records
           .map((record) => record.photoPath)
           .whereType<String>()
@@ -103,7 +117,8 @@ class BackupService {
     if (manifestBytes == null) throw FormatException('备份缺少 manifest.json');
     final manifest =
         jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
-    if (manifest['format_version'] != formatVersion)
+    if (manifest['format_version'] != 1 &&
+        manifest['format_version'] != formatVersion)
       throw FormatException('不支持的备份版本');
     final hashes = manifest['file_hashes'] as Map<String, dynamic>;
     final expectedHashedFiles = files.keys
@@ -124,6 +139,18 @@ class BackupService {
     final records = (jsonDecode(utf8.decode(recordsBytes)) as List<dynamic>)
         .map((item) => OvertimeRecord.fromMap(item as Map<String, dynamic>))
         .toList();
+    LedgerValidator.validate(records);
+    final annual = _annualFromFiles(files, manifest['format_version'] as int);
+    validateAnnualLedger(annual, records);
+    if (manifest['format_version'] == 2) {
+      final calendarBytes = files['leave_calendar.json'];
+      if (calendarBytes == null) throw const FormatException('备份缺少年假日历');
+      final calendar = LeaveCalendar(
+        (jsonDecode(utf8.decode(calendarBytes)) as List<dynamic>)
+            .cast<Map<String, dynamic>>(),
+      );
+      validateAnnualCalendar(annual, calendar);
+    }
     for (final record in records) {
       if (record.photoPath != null && !files.containsKey(record.photoPath)) {
         throw FormatException('记录 ${record.id} 引用的照片不在备份中');
@@ -139,6 +166,18 @@ class BackupService {
     return manifest;
   }
 
+  static List<AnnualLeaveRecord> _annualFromFiles(
+    Map<String, List<int>> files,
+    int version,
+  ) {
+    if (version == 1) return [];
+    final bytes = files['annual_leave.json'];
+    if (bytes == null) throw const FormatException('备份缺少年假记录');
+    return (jsonDecode(utf8.decode(bytes)) as List<dynamic>)
+        .map((r) => AnnualLeaveRecord.fromMap(r as Map<String, dynamic>))
+        .toList();
+  }
+
   static String _backupFileName(DateTime timestamp) {
     final local = timestamp.toLocal();
     String part(int value, int width) => value.toString().padLeft(width, '0');
@@ -148,26 +187,40 @@ class BackupService {
     return '偷闲半日-备份-$date-$time.zip';
   }
 
-  Future<void> restore(File zipFile) async {
-    await verify(zipFile);
+  Future<Directory> createRecoveryPoint(String label) async {
     final recovery = Directory(
       p.join(
         database.rootDirectory.path,
-        'pre-restore-${DateTime.now().millisecondsSinceEpoch}',
+        '$label-${DateTime.now().microsecondsSinceEpoch}',
       ),
     );
     await recovery.create(recursive: true);
-    await database.db.execute('PRAGMA wal_checkpoint(FULL)');
+    final checkpoint = await database.db.rawQuery(
+      'PRAGMA wal_checkpoint(FULL)',
+    );
+    if (checkpoint.any((row) => row['busy'] != 0)) {
+      throw StateError('数据库仍在写入，无法创建完整恢复点，请稍后重试');
+    }
     await File(database.db.path).copy(p.join(recovery.path, 'database.db'));
     final photos = await database.photosDirectory();
-    final recoveryPhotos = Directory(p.join(recovery.path, 'photos'));
-    await recoveryPhotos.create(recursive: true);
     for (final photo in photos.listSync(recursive: true).whereType<File>()) {
-      final relative = p.relative(photo.path, from: photos.path);
-      final target = File(p.join(recoveryPhotos.path, relative));
+      final target = File(
+        p.join(
+          recovery.path,
+          'photos',
+          p.relative(photo.path, from: photos.path),
+        ),
+      );
       await target.parent.create(recursive: true);
       await photo.copy(target.path);
     }
+    return recovery;
+  }
+
+  Future<void> restore(File zipFile) async {
+    final manifest = await verify(zipFile);
+    await createRecoveryPoint('pre-restore');
+    final photos = await database.photosDirectory();
     final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
     final recordsEntry = archive.files.firstWhere(
       (item) => item.name == 'records.json',
@@ -177,12 +230,25 @@ class BackupService {
                 as List<dynamic>)
             .map((item) => OvertimeRecord.fromMap(item as Map<String, dynamic>))
             .toList();
+    final files = {
+      for (final item in archive.files.where((f) => f.isFile))
+        item.name: item.content as List<int>,
+    };
+    final incomingAnnual = _annualFromFiles(
+      files,
+      manifest['format_version'] as int,
+    );
+    final mergedAnnual = <String, AnnualLeaveRecord>{
+      for (final record in await database.annualRecords()) record.id: record,
+      for (final record in incomingAnnual) record.id: record,
+    }.values.toList();
     final current = await database.records();
     final merged = <String, OvertimeRecord>{
       for (final record in current) record.id: record,
       for (final record in incoming) record.id: record,
     }.values.toList();
     LedgerValidator.validate(merged);
+    validateAnnualLedger(mergedAnnual, merged);
     final createdPhotos = <File>[];
     try {
       final incomingPhotoPaths = incoming
@@ -215,6 +281,25 @@ class BackupService {
             record.toMap(),
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
+        }
+        for (final record in incomingAnnual) {
+          await txn.insert(
+            'annual_leave_records',
+            record.toDatabaseMap(),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        if (files.containsKey('leave_calendar.json')) {
+          final rows =
+              (jsonDecode(utf8.decode(files['leave_calendar.json']!))
+                      as List<dynamic>)
+                  .cast<Map<String, dynamic>>();
+          for (final row in LeaveCalendar(rows).rows) {
+            await txn.insert('leave_calendar', {
+              ...row,
+              'is_day_off': row['is_day_off'] == true ? 1 : 0,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
         }
         final calendarEntries = archive.files.where(
           (item) => item.name == 'holiday_calendar.json',
@@ -283,7 +368,8 @@ class BackupService {
     File zipFile,
     SupabaseRepository repository,
   ) async {
-    await verify(zipFile);
+    final manifest = await verify(zipFile);
+    await createRecoveryPoint('pre-cloud-restore');
     final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
     final files = {
       for (final item in archive.files.where((item) => item.isFile))
@@ -318,14 +404,28 @@ class BackupService {
         rewritten.add(record.copyWith(photoPath: newPath));
       }
       LedgerValidator.validate(rewritten);
-      await repository.upsertRecords(rewritten);
+      final annual = _annualFromFiles(files, manifest['format_version'] as int);
+      validateAnnualLedger(annual, rewritten);
+      await repository.restoreLedger(rewritten, annual);
     } catch (_) {
-      for (final path in uploaded) {
-        try {
-          await repository.deletePhoto(path);
-        } catch (_) {
-          // 未引用对象留待 Storage 审计；绝不删除旧线上对象。
+      // 请求超时也可能已经提交。只有重新读到快照、确认对象未被引用才清理。
+      try {
+        final snapshot = await repository.fetchLedger();
+        final referenced = snapshot.records
+            .map((r) => r.photoPath)
+            .whereType<String>()
+            .toSet();
+        for (final path in uploaded.where(
+          (path) => !referenced.contains(path),
+        )) {
+          try {
+            await repository.deletePhoto(path);
+          } catch (_) {
+            /* 保留待审计的未引用照片。 */
+          }
         }
+      } catch (_) {
+        /* 无法确认远端状态时保留所有已上传对象。 */
       }
       rethrow;
     }

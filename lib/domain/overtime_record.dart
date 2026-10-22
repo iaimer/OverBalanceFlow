@@ -15,6 +15,7 @@ class OvertimeRecord {
     required this.memo,
     required this.createdAt,
     this.photoPath,
+    this.leaveReason,
   });
 
   final String id;
@@ -28,6 +29,7 @@ class OvertimeRecord {
   final String memo;
   final String createdAt;
   final String? photoPath;
+  final String? leaveReason;
 
   bool get isLeave => status == '已调休';
 
@@ -62,6 +64,7 @@ class OvertimeRecord {
       memo: map['memo']?.toString() ?? '',
       createdAt: requiredText('created_at'),
       photoPath: _nullable(map['photo_path']),
+      leaveReason: _nullable(map['leave_reason']),
     );
   }
 
@@ -77,6 +80,8 @@ class OvertimeRecord {
     'memo': memo,
     'created_at': createdAt,
     'photo_path': photoPath,
+    if (leaveReason != null && leaveReason!.isNotEmpty)
+      'leave_reason': leaveReason,
   };
 
   OvertimeRecord copyWith({
@@ -90,6 +95,7 @@ class OvertimeRecord {
     String? memo,
     String? createdAt,
     String? photoPath,
+    String? leaveReason,
   }) => OvertimeRecord(
     id: id,
     otDate: otDate ?? this.otDate,
@@ -102,6 +108,7 @@ class OvertimeRecord {
     memo: memo ?? this.memo,
     createdAt: createdAt ?? this.createdAt,
     photoPath: photoPath ?? this.photoPath,
+    leaveReason: leaveReason ?? this.leaveReason,
   );
 
   static String _shortTime(String text) {

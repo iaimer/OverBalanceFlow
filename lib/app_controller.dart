@@ -12,8 +12,16 @@ import 'data/local_database.dart';
 import 'data/migration_service.dart';
 import 'data/supabase_repository.dart';
 import 'domain/business_rules.dart';
+import 'domain/annual_leave.dart';
+import 'domain/ledger_validator.dart';
 import 'domain/holiday_calendar.dart';
 import 'domain/overtime_record.dart';
+
+class CloudRefreshException implements Exception {
+  const CloudRefreshException();
+  @override
+  String toString() => '已写入云端，但缓存刷新失败。请刷新记录，不要重复提交。';
+}
 
 class AppController extends ChangeNotifier {
   AppController(this.database, {SupabaseRepository? remoteOverride})
@@ -26,6 +34,8 @@ class AppController extends ChangeNotifier {
   final SupabaseRepository? remote;
   final _uuid = const Uuid();
   List<OvertimeRecord> records = [];
+  List<AnnualLeaveRecord> annualRecords = [];
+  LeaveCalendar annualCalendar = LeaveCalendar.builtin2026;
   HolidayCalendar _holidays;
   bool loading = true;
   bool migrationRequired = false;
@@ -39,11 +49,14 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     records = await database.records();
-    _holidays = HolidayCalendar(HolidayCalendar.defaults2026);
-    migrationRequired = remote == null && records.isEmpty;
+    annualRecords = await database.annualRecords();
+    annualCalendar = await database.leaveCalendar();
+    _holidays = await database.holidays();
+    migrationRequired =
+        remote == null && records.isEmpty && annualRecords.isEmpty;
     migrationReport = await database.setting('migration_report');
     loading = false;
-    usingOfflineCache = records.isNotEmpty;
+    usingOfflineCache = records.isNotEmpty || annualRecords.isNotEmpty;
     notifyListeners();
     if (remote != null) {
       syncing = true;
@@ -84,19 +97,38 @@ class AppController extends ChangeNotifier {
     final repository = remote;
     if (repository == null) throw StateError('安装包未配置 Supabase');
     try {
-      final cloudRecords = await repository.fetchAll();
-      if (cloudRecords.isEmpty && records.isNotEmpty) {
+      final snapshot = await repository.fetchLedger();
+      final cloudRecords = snapshot.records;
+      if (cloudRecords.isEmpty &&
+          snapshot.annual.isEmpty &&
+          (records.isNotEmpty || annualRecords.isNotEmpty)) {
         throw StateError('线上返回空账本，为避免覆盖缓存已中止同步');
       }
-      await database.replaceCache(cloudRecords);
+      if (!snapshot.calendar.supportedYears.containsAll(
+        annualCalendar.supportedYears,
+      )) {
+        throw StateError('年度日历读取不完整，已保留缓存');
+      }
+      LedgerValidator.validate(cloudRecords);
+      validateAnnualLedger(snapshot.annual, cloudRecords);
+      validateAnnualCalendar(snapshot.annual, snapshot.calendar);
+      await database.replaceLedgerCache(
+        cloudRecords,
+        snapshot.annual,
+        snapshot.calendar,
+      );
       records = cloudRecords;
+      annualRecords = snapshot.annual;
+      annualCalendar = snapshot.calendar;
       usingOfflineCache = false;
       syncError = null;
       notifyListeners();
       unawaited(_cacheCloudPhotos(repository, cloudRecords));
     } catch (error) {
-      usingOfflineCache = records.isNotEmpty;
-      syncError = records.isEmpty ? '尚未取得云端账本：$error' : '云端同步失败：$error';
+      usingOfflineCache = records.isNotEmpty || annualRecords.isNotEmpty;
+      syncError = records.isEmpty && annualRecords.isEmpty
+          ? '尚未取得云端账本：$error'
+          : '云端同步失败：$error';
       rethrow;
     }
   }
@@ -306,10 +338,13 @@ class AppController extends ChangeNotifier {
     start,
     end,
     isLeave: leave,
-    isDayOff: _holidays.isDayOff(date),
+    isDayOff: dayType(date) != DayType.workday,
   );
 
-  DayType dayType(DateTime date) => _holidays.dayType(date);
+  DayType dayType(DateTime date) =>
+      annualCalendar.supportedYears.contains(date.year)
+      ? annualCalendar.holidays.dayType(date)
+      : _holidays.dayType(date);
 
   Future<void> addOvertime({
     required DateTime date,
@@ -425,10 +460,117 @@ class AppController extends ChangeNotifier {
     });
   }
 
-  ReconciliationPreview previewLeave(String start, String end) {
+  AnnualLeaveBalance annualBalance(int year, {DateTime? now}) =>
+      AnnualLeaveBalance(year, annualRecords, now: now);
+
+  AnnualLeaveRecord previewAnnualLeave({
+    required DateTime startDate,
+    required DateTime endDate,
+    bool startAfternoon = false,
+    bool endMorning = false,
+    String singlePeriod = 'full',
+    String reason = '',
+    String? editingId,
+  }) {
+    final old = annualRecords.where((r) => r.id == editingId).firstOrNull;
+    if (editingId != null && old == null) throw StateError('年假记录不存在，请刷新后重试');
+    final record = AnnualLeaveRecord(
+      id: editingId ?? _uuid.v4(),
+      startDate: dateText(startDate),
+      endDate: dateText(endDate),
+      slots: buildAnnualLeaveSlots(
+        start: startDate,
+        end: endDate,
+        startAfternoon: startAfternoon,
+        endMorning: endMorning,
+        singlePeriod: singlePeriod,
+        calendar: annualCalendar.holidays,
+        supportedYears: annualCalendar.supportedYears,
+      ),
+      reason: reason.trim(),
+      createdAt: old?.createdAt ?? DateTime.now().toUtc().toIso8601String(),
+    );
+    validateAnnualLedger([
+      ...annualRecords.where((r) => r.id != editingId),
+      record,
+    ], records);
+    return record;
+  }
+
+  Future<void> saveAnnualLeave(
+    AnnualLeaveRecord record, {
+    bool editing = false,
+  }) => _runCloudMutation(() async {
+    final repository = remote;
+    if (repository == null) throw StateError('未配置 Supabase，不能保存年假');
+    validateAnnualLedger([
+      ...annualRecords.where((r) => r.id != record.id),
+      record,
+    ], records);
+    await repository.saveAnnualLeave(record, allowInsert: !editing);
+    await _refreshConfirmedWrite();
+  });
+
+  Future<void> deleteAnnualLeave(String id) => _runCloudMutation(() async {
+    final repository = remote;
+    if (repository == null) throw StateError('未配置 Supabase，不能删除年假');
+    await repository.deleteAnnualLeave(id);
+    // 已取得明确删除确认，定向移除该缓存行；不通过远端空响应清空缓存。
+    await database.db.delete(
+      'annual_leave_records',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    annualRecords = annualRecords.where((r) => r.id != id).toList();
+    notifyListeners();
+    await _syncFromCloud(allowDuringMutation: true);
+  });
+
+  ReconciliationPreview previewLeave(
+    String start,
+    String end, {
+    DateTime? date,
+    String? editingId,
+  }) {
     final hours = parseDuration(start, end, isLeave: true);
     if (hours <= 0) throw StateError('调休时间无效');
-    return previewFifo(records, hours);
+    if (date != null &&
+        annualRecords.any(
+          (r) => r.slots.any(
+            (slot) => slot.date == dateText(date) && slot.overlaps(start, end),
+          ),
+        )) {
+      throw StateError('所选时段与已有年假重叠');
+    }
+    var inventory = records;
+    if (editingId != null) {
+      final old = records
+          .where((r) => r.id == editingId && r.isLeave)
+          .firstOrNull;
+      if (old == null) throw StateError('调休记录不存在，请刷新后重试');
+      final details = ReconciliationDetail.decode(old.memo);
+      if ((hours + old.duration).abs() < 0.001) {
+        return ReconciliationPreview(
+          details: details,
+          requestedHours: hours,
+          deductedHours: hours,
+        );
+      }
+      final refunds = {for (final detail in details) detail.id: detail.deduct};
+      inventory = records
+          .where((r) => r.id != editingId)
+          .map(
+            (r) => r.copyWith(
+              remainingHours: r.remainingHours + (refunds[r.id] ?? 0),
+            ),
+          )
+          .toList();
+    }
+    final preview = previewFifo(inventory, hours);
+    if (preview.shortage > 0) {
+      throw StateError('调休余额不足，还差 ${preview.shortage.toStringAsFixed(1)} 小时');
+    }
+    return preview;
   }
 
   Future<void> reconcile({
@@ -436,40 +578,47 @@ class AppController extends ChangeNotifier {
     required String start,
     required String end,
     required ReconciliationPreview preview,
+    String reason = '',
+    String? editingId,
+    String? newRecordId,
   }) async {
     await _runCloudMutation(() async {
       final repository = remote;
       if (repository == null) throw StateError('未配置 Supabase，不能核销线上账本');
-      final byId = {for (final record in records) record.id: record};
-      final updates = <OvertimeRecord>[];
-      for (final detail in preview.details) {
-        final record = byId[detail.id];
-        if (record == null || record.remainingHours < detail.deduct) {
-          throw StateError('线上缓存余额已变化，请刷新后重新预览');
-        }
-        final remaining = record.remainingHours - detail.deduct;
-        updates.add(
-          record.copyWith(
-            remainingHours: remaining,
-            status: remaining <= 0 ? '已结清' : '部分核销',
-          ),
-        );
+      final fresh = previewLeave(start, end, date: date, editingId: editingId);
+      if (jsonEncode(fresh.details.map((d) => d.toMap()).toList()) !=
+          jsonEncode(preview.details.map((d) => d.toMap()).toList())) {
+        throw StateError('余额已变化，请重新预览');
       }
+      final old = records.where((r) => r.id == editingId).firstOrNull;
       final leaveRecord = OvertimeRecord(
-        id: _uuid.v4(),
+        id: editingId ?? newRecordId ?? _uuid.v4(),
         otDate: _date(date),
         startTime: start,
         endTime: end,
-        duration: -preview.deductedHours,
-        totalHours: -preview.deductedHours,
+        duration: -fresh.deductedHours,
+        totalHours: -fresh.deductedHours,
         remainingHours: 0,
         status: '已调休',
-        memo: jsonEncode(preview.details.map((item) => item.toMap()).toList()),
-        createdAt: DateTime.now().toUtc().toIso8601String(),
+        leaveReason: reason.trim(),
+        memo: jsonEncode(fresh.details.map((d) => d.toMap()).toList()),
+        createdAt: old?.createdAt ?? DateTime.now().toUtc().toIso8601String(),
       );
-      await repository.reconcileAtomically(leaveRecord, preview.details);
-      await _syncFromCloud(allowDuringMutation: true);
+      await repository.saveCompensatoryLeave(
+        leaveRecord,
+        fresh.details,
+        allowInsert: editingId == null,
+      );
+      await _refreshConfirmedWrite();
     });
+  }
+
+  Future<void> _refreshConfirmedWrite() async {
+    try {
+      await _syncFromCloud(allowDuringMutation: true);
+    } catch (_) {
+      throw const CloudRefreshException();
+    }
   }
 
   Future<bool> delete(String id) async {
@@ -523,6 +672,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> refresh() async {
     records = await database.records();
+    annualRecords = await database.annualRecords();
+    annualCalendar = await database.leaveCalendar();
     notifyListeners();
   }
 

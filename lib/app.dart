@@ -35,6 +35,9 @@ class OverBalanceFlowApp extends StatelessWidget {
           onSurfaceVariant: AppPalette.inkMuted,
           outline: AppPalette.outline,
           error: Color(0xFFB94343),
+          onError: Color(0xFFFFFFFF),
+          errorContainer: AppPalette.coralSoft,
+          onErrorContainer: Color(0xFF7A2424),
         ),
         scaffoldBackgroundColor: AppPalette.canvas,
         appBarTheme: const AppBarTheme(

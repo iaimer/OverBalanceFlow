@@ -9,6 +9,16 @@ import 'common.dart';
 import 'app_palette.dart';
 import 'overtime_editor_page.dart';
 
+TimeOfDay? overtimeEndTimeInitial({
+  required DateTime selectedDate,
+  required DateTime now,
+}) {
+  if (!DateUtils.isSameDay(selectedDate, now)) return null;
+  return TimeOfDay.fromDateTime(now);
+}
+
+enum _OvertimeSaveState { editing, saving, saved }
+
 class OvertimePage extends StatefulWidget {
   const OvertimePage({super.key, required this.controller});
   final AppController controller;
@@ -23,7 +33,7 @@ class _OvertimePageState extends State<OvertimePage> {
   String end = '18:00';
   final memo = TextEditingController();
   XFile? photo;
-  bool saving = false;
+  var saveState = _OvertimeSaveState.editing;
 
   @override
   void dispose() {
@@ -33,32 +43,45 @@ class _OvertimePageState extends State<OvertimePage> {
 
   @override
   Widget build(BuildContext context) {
+    final canEdit = saveState != _OvertimeSaveState.saving;
     final recent = widget.controller.records
         .where((record) => !record.isLeave)
         .take(2)
         .toList();
     final estimated = widget.controller.duration(start, end, date);
-    final conflicts = findOverlappingOvertime(
-      widget.controller.records,
-      date: _dateText(date),
-      startTime: start,
-      endTime: end,
-    );
+    final conflicts = saveState == _OvertimeSaveState.saved
+        ? const <OvertimeRecord>[]
+        : findOverlappingOvertime(
+            widget.controller.records,
+            date: _dateText(date),
+            startTime: start,
+            endTime: end,
+          );
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
       children: [
-        const Text(
-          '记录时间，余额会自动进入 FIFO 账本。',
-          style: TextStyle(color: AppPalette.inkMuted),
+        const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('记录时间', style: TextStyle(color: AppPalette.inkMuted)),
+            HelpTooltip(message: '保存后会按 FIFO 规则把这段加班时间加入可用调休余额。'),
+          ],
         ),
         const SizedBox(height: 18),
         _Picker(
           label: '加班日期',
           value: date.toIso8601String().substring(0, 10),
-          onTap: () async {
-            final value = await pickDate(context, date);
-            if (value != null) setState(() => date = value);
-          },
+          onTap: canEdit
+              ? () async {
+                  final value = await pickDate(context, date);
+                  if (value != null && !_sameDay(value, date)) {
+                    setState(() {
+                      date = value;
+                      saveState = _OvertimeSaveState.editing;
+                    });
+                  }
+                }
+              : null,
         ),
         Padding(
           padding: const EdgeInsets.only(top: 8),
@@ -93,10 +116,17 @@ class _OvertimePageState extends State<OvertimePage> {
               child: _Picker(
                 label: '开始时间',
                 value: start,
-                onTap: () async {
-                  final value = await pickTime(context, start);
-                  if (value != null) setState(() => start = value);
-                },
+                onTap: canEdit
+                    ? () async {
+                        final value = await pickTime(context, start);
+                        if (value != null && value != start) {
+                          setState(() {
+                            start = value;
+                            saveState = _OvertimeSaveState.editing;
+                          });
+                        }
+                      }
+                    : null,
               ),
             ),
             const SizedBox(width: 12),
@@ -104,10 +134,25 @@ class _OvertimePageState extends State<OvertimePage> {
               child: _Picker(
                 label: '结束时间',
                 value: end,
-                onTap: () async {
-                  final value = await pickTime(context, end);
-                  if (value != null) setState(() => end = value);
-                },
+                onTap: canEdit
+                    ? () async {
+                        final now = DateTime.now();
+                        final value = await pickTime(
+                          context,
+                          end,
+                          initialTime: overtimeEndTimeInitial(
+                            selectedDate: date,
+                            now: now,
+                          ),
+                        );
+                        if (value != null && value != end) {
+                          setState(() {
+                            end = value;
+                            saveState = _OvertimeSaveState.editing;
+                          });
+                        }
+                      }
+                    : null,
               ),
             ),
           ],
@@ -152,6 +197,12 @@ class _OvertimePageState extends State<OvertimePage> {
         const SizedBox(height: 12),
         TextField(
           controller: memo,
+          enabled: canEdit,
+          onChanged: (_) {
+            if (saveState != _OvertimeSaveState.editing) {
+              setState(() => saveState = _OvertimeSaveState.editing);
+            }
+          },
           decoration: const InputDecoration(labelText: '备注（选填）'),
         ),
         const SizedBox(height: 12),
@@ -159,7 +210,9 @@ class _OvertimePageState extends State<OvertimePage> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => _pickPhoto(ImageSource.camera),
+                onPressed: saveState == _OvertimeSaveState.saving
+                    ? null
+                    : () => _pickPhoto(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera_outlined),
                 label: const Text('拍照'),
               ),
@@ -167,7 +220,9 @@ class _OvertimePageState extends State<OvertimePage> {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => _pickPhoto(ImageSource.gallery),
+                onPressed: saveState == _OvertimeSaveState.saving
+                    ? null
+                    : () => _pickPhoto(ImageSource.gallery),
                 icon: const Icon(Icons.photo_library_outlined),
                 label: const Text('相册'),
               ),
@@ -198,10 +253,17 @@ class _OvertimePageState extends State<OvertimePage> {
             backgroundColor: AppPalette.coralDeep,
             foregroundColor: AppPalette.surface,
           ),
-          onPressed: saving || conflicts.isNotEmpty ? null : _save,
+          onPressed:
+              saveState == _OvertimeSaveState.editing && conflicts.isEmpty
+              ? _save
+              : null,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
-            child: Text(saving ? '正在保存…' : '保存加班'),
+            child: Text(switch (saveState) {
+              _OvertimeSaveState.editing => '保存加班',
+              _OvertimeSaveState.saving => '正在保存…',
+              _OvertimeSaveState.saved => '已保存',
+            }),
           ),
         ),
         const SizedBox(height: 32),
@@ -230,7 +292,8 @@ class _OvertimePageState extends State<OvertimePage> {
   }
 
   Future<void> _save() async {
-    setState(() => saving = true);
+    if (saveState != _OvertimeSaveState.editing) return;
+    setState(() => saveState = _OvertimeSaveState.saving);
     try {
       await widget.controller.addOvertime(
         date: date,
@@ -239,19 +302,21 @@ class _OvertimePageState extends State<OvertimePage> {
         memo: memo.text.trim(),
         photo: photo,
       );
+      if (!mounted) return;
       memo.clear();
-      setState(() => photo = null);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('加班已保存到 Supabase')));
+      setState(() {
+        photo = null;
+        saveState = _OvertimeSaveState.saved;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('加班已保存到 Supabase')));
     } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally {
-      if (mounted) setState(() => saving = false);
+      if (!mounted) return;
+      setState(() => saveState = _OvertimeSaveState.editing);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -261,7 +326,12 @@ class _OvertimePageState extends State<OvertimePage> {
       imageQuality: 82,
       maxWidth: 1600,
     );
-    if (value != null && mounted) setState(() => photo = value);
+    if (value != null && mounted) {
+      setState(() {
+        photo = value;
+        saveState = _OvertimeSaveState.editing;
+      });
+    }
   }
 
   Future<void> _openEditor(OvertimeRecord record) async {
@@ -280,6 +350,9 @@ class _OvertimePageState extends State<OvertimePage> {
 
   static String _dateText(DateTime value) =>
       value.toIso8601String().substring(0, 10);
+
+  static bool _sameDay(DateTime first, DateTime second) =>
+      DateUtils.isSameDay(first, second);
 }
 
 class _Picker extends StatelessWidget {
@@ -290,7 +363,7 @@ class _Picker extends StatelessWidget {
   });
   final String label;
   final String value;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => InkWell(

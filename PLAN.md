@@ -12,6 +12,7 @@
 
 ## 发布前待办
 
-- 人工审阅并部署 `docs/supabase_cloud_ledger.sql`。
+- 按 `docs/ANNUAL_LEAVE_UPGRADE.md` 人工审阅并依次部署 `docs/supabase_cloud_ledger.sql`、`docs/supabase_annual_leave.sql`。
+- 年假、请假编辑和 ZIP v2 已实现，待云端部署后做设备验收。
 - 配置独立 release keystore，完成正式 APK 覆盖升级测试。
 - 完成真机写入、核销、删除、ZIP 恢复及断网缓存验收。

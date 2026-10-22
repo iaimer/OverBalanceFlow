@@ -6,13 +6,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/business_rules.dart';
+import '../domain/annual_leave.dart';
 import '../domain/holiday_calendar.dart';
 import '../domain/overtime_record.dart';
 
 class LocalDatabase {
   LocalDatabase._(this.db, this.rootDirectory);
 
-  static const schemaVersion = 1;
+  static const schemaVersion = 2;
   static const databaseName = 'over_balance_flow.db';
   final Database db;
   final Directory rootDirectory;
@@ -24,13 +25,44 @@ class LocalDatabase {
     final root = rootDirectory ?? await getApplicationSupportDirectory();
     await root.create(recursive: true);
     final path = databasePath ?? p.join(root.path, databaseName);
+    if (await File(path).exists()) {
+      final probe = await openDatabase(path, singleInstance: false);
+      try {
+        final version = await probe.getVersion();
+        if (version != 1 && version != schemaVersion) {
+          throw StateError('未知数据库版本 $version，已保留原数据库并停止打开');
+        }
+        if (version == 1) {
+          final checkpoint = await probe.rawQuery(
+            'PRAGMA wal_checkpoint(FULL)',
+          );
+          if (checkpoint.any((row) => row['busy'] != 0)) {
+            throw StateError('数据库仍在写入，无法创建完整升级恢复点');
+          }
+          final recovery = Directory(
+            p.join(
+              root.path,
+              'pre-schema-1-to-2-${DateTime.now().microsecondsSinceEpoch}',
+            ),
+          );
+          await recovery.create(recursive: true);
+          await File(path).copy(p.join(recovery.path, 'database.db'));
+        }
+      } finally {
+        await probe.close();
+      }
+    }
     final database = await openDatabase(
       path,
       version: schemaVersion,
       onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: _createSchema,
       onUpgrade: (db, oldVersion, newVersion) async {
-        throw StateError('数据库升级必须通过显式迁移，禁止自动重建');
+        if (oldVersion != 1 || newVersion != 2) {
+          throw StateError('未知数据库迁移，已中止升级');
+        }
+        await db.execute('ALTER TABLE ot_records ADD COLUMN leave_reason TEXT');
+        await _createLeaveSchema(db);
       },
       onDowngrade: (db, oldVersion, newVersion) async {
         throw StateError('检测到更高版本数据库，禁止用旧版 App 降级打开');
@@ -52,6 +84,7 @@ class LocalDatabase {
         status TEXT NOT NULL CHECK (status IN ('待核销','部分核销','已结清','已调休')),
         memo TEXT NOT NULL DEFAULT '',
         photo_path TEXT,
+        leave_reason TEXT,
         created_at TEXT NOT NULL
       )
     ''');
@@ -72,6 +105,7 @@ class LocalDatabase {
         calendar_version TEXT NOT NULL
       )
     ''');
+    await _createLeaveSchema(db);
     final batch = db.batch();
     for (final entry in HolidayCalendar.defaults2026.entries) {
       batch.insert('holiday_calendar', {
@@ -82,6 +116,56 @@ class LocalDatabase {
       });
     }
     await batch.commit(noResult: true);
+  }
+
+  static Future<void> _createLeaveSchema(DatabaseExecutor db) async {
+    await db.execute('''CREATE TABLE annual_leave_records (
+      id TEXT PRIMARY KEY NOT NULL, start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL, slots TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL)''');
+    await db.execute('''CREATE TABLE leave_calendar (
+      date TEXT PRIMARY KEY NOT NULL, is_day_off INTEGER NOT NULL CHECK(is_day_off IN (0,1)),
+      calendar_version TEXT NOT NULL)''');
+    for (final row in LeaveCalendar.builtin2026.rows) {
+      await db.insert('leave_calendar', {
+        ...row,
+        'is_day_off': row['is_day_off'] == true ? 1 : 0,
+      });
+    }
+  }
+
+  Future<List<AnnualLeaveRecord>> annualRecords() async => (await db.query(
+    'annual_leave_records',
+    orderBy: 'start_date DESC, created_at DESC, id DESC',
+  )).map(AnnualLeaveRecord.fromMap).toList();
+
+  Future<LeaveCalendar> leaveCalendar() async => LeaveCalendar([
+    for (final row in await db.query('leave_calendar'))
+      {...row, 'is_day_off': row['is_day_off'] == 1},
+  ]);
+
+  Future<void> replaceLedgerCache(
+    List<OvertimeRecord> records,
+    List<AnnualLeaveRecord> annual,
+    LeaveCalendar calendar,
+  ) async {
+    await db.transaction((txn) async {
+      await txn.delete('ot_records');
+      await txn.delete('annual_leave_records');
+      await txn.delete('leave_calendar');
+      for (final record in records) {
+        await txn.insert('ot_records', record.toMap());
+      }
+      for (final record in annual) {
+        await txn.insert('annual_leave_records', record.toDatabaseMap());
+      }
+      for (final row in calendar.rows) {
+        await txn.insert('leave_calendar', {
+          ...row,
+          'is_day_off': row['is_day_off'] == true ? 1 : 0,
+        });
+      }
+    });
   }
 
   Future<List<OvertimeRecord>> records() async {

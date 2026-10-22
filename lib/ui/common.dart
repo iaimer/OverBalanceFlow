@@ -6,6 +6,72 @@ import 'package:path/path.dart' as p;
 import '../app_controller.dart';
 import '../domain/overtime_record.dart';
 
+/// 将不会影响业务操作的规则说明收纳到统一的帮助入口。
+///
+/// Tooltip 默认支持鼠标悬停和触摸长按；图标的点击动作额外调用
+/// [TooltipState.ensureTooltipVisible]，因此在桌面、手机和键盘操作下都能
+/// 主动查看同一份说明。
+class HelpTooltip extends StatefulWidget {
+  const HelpTooltip({
+    super.key,
+    required this.message,
+    this.semanticLabel,
+    this.icon = Icons.info_outline,
+    this.color,
+  });
+
+  final String message;
+  final String? semanticLabel;
+  final IconData icon;
+  final Color? color;
+
+  @override
+  State<HelpTooltip> createState() => _HelpTooltipState();
+}
+
+class _HelpTooltipState extends State<HelpTooltip> {
+  final _tooltipKey = GlobalKey<TooltipState>();
+
+  void _showTooltip() {
+    _tooltipKey.currentState?.ensureTooltipVisible();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = widget.semanticLabel ?? widget.message;
+    return Semantics(
+      button: true,
+      label: '说明：$label',
+      child: Tooltip(
+        key: _tooltipKey,
+        message: widget.message,
+        excludeFromSemantics: true,
+        constraints: const BoxConstraints(minHeight: 32, maxWidth: 280),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        preferBelow: false,
+        waitDuration: const Duration(milliseconds: 350),
+        showDuration: const Duration(seconds: 5),
+        child: IconButton(
+          onPressed: _showTooltip,
+          icon: Icon(widget.icon, size: 18),
+          color: widget.color ?? Theme.of(context).colorScheme.onSurfaceVariant,
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          style: IconButton.styleFrom(
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            minimumSize: const Size(32, 32),
+            maximumSize: const Size(32, 32),
+            padding: EdgeInsets.zero,
+          ),
+          mouseCursor: SystemMouseCursors.help,
+        ),
+      ),
+    );
+  }
+}
+
 Future<DateTime?> pickDate(BuildContext context, DateTime current) =>
     showDatePicker(
       context: context,
@@ -14,11 +80,15 @@ Future<DateTime?> pickDate(BuildContext context, DateTime current) =>
       lastDate: DateTime(2100),
     );
 
-Future<String?> pickTime(BuildContext context, String current) async {
+Future<String?> pickTime(
+  BuildContext context,
+  String current, {
+  TimeOfDay? initialTime,
+}) async {
   final parts = current.split(':').map(int.parse).toList();
   final time = await showTimePicker(
     context: context,
-    initialTime: TimeOfDay(hour: parts[0], minute: parts[1]),
+    initialTime: initialTime ?? TimeOfDay(hour: parts[0], minute: parts[1]),
   );
   if (time == null) return null;
   return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
@@ -112,6 +182,11 @@ Future<void> showRecordDetails(
                   ),
                 ),
               ],
+              if (record.isLeave &&
+                  (record.leaveReason?.isNotEmpty ?? false)) ...[
+                const SizedBox(height: 12),
+                Text('请假事由：${record.leaveReason}'),
+              ],
               if (!record.isLeave && record.memo.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(record.memo),
@@ -124,7 +199,7 @@ Future<void> showRecordDetails(
                 ),
               ],
               const SizedBox(height: 20),
-              if (!record.isLeave && onEdit != null) ...[
+              if (onEdit != null) ...[
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -192,7 +267,8 @@ class OvertimeConflictNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final error = Theme.of(context).colorScheme.error;
+    final scheme = Theme.of(context).colorScheme;
+    final error = scheme.error;
     final ranges = conflicts
         .map(
           (record) => '${record.otDate} ${record.startTime}–${record.endTime}',
@@ -201,19 +277,26 @@ class OvertimeConflictNotice extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
+        color: scheme.errorContainer,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: error.withValues(alpha: 0.45)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded, size: 20, color: error),
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 20,
+            color: scheme.onErrorContainer,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               '与已有加班记录重叠：$ranges。请修改日期或时间后再保存。',
-              style: TextStyle(color: error, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: scheme.onErrorContainer,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

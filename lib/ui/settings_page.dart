@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_controller.dart';
+import 'common.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, required this.controller});
@@ -31,16 +32,27 @@ class SettingsPage extends StatelessWidget {
               ? Icons.cloud_off_outlined
               : Icons.cloud_done_outlined,
         ),
-        title: Text(
-          controller.syncing
-              ? '正在同步云端账本'
-              : controller.syncError != null && controller.records.isEmpty
-              ? '尚未取得云端账本'
-              : controller.usingOfflineCache
-              ? '当前使用离线缓存'
-              : 'Supabase 已同步',
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                controller.syncing
+                    ? '正在同步云端账本'
+                    : controller.syncError != null &&
+                          (controller.records.isEmpty &&
+                              controller.annualRecords.isEmpty)
+                    ? '尚未取得云端账本'
+                    : controller.usingOfflineCache
+                    ? '当前使用离线缓存'
+                    : 'Supabase 已同步',
+              ),
+            ),
+            const HelpTooltip(message: '联网时以云端账本为准；同步失败不会清空有效缓存。'),
+          ],
         ),
-        subtitle: Text(controller.syncError ?? '联网时以云端账本为准；同步失败不会清空有效缓存。'),
+        subtitle: controller.syncError == null
+            ? null
+            : Text(controller.syncError!),
         trailing: controller.syncing
             ? const SizedBox(
                 width: 20,
@@ -59,15 +71,23 @@ class SettingsPage extends StatelessWidget {
       ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.archive_outlined),
-        title: const Text('导出 ZIP 备份'),
-        subtitle: const Text('按“偷闲半日-备份-日期-时间.zip”命名；文件未加密，请妥善保存。'),
+        title: const Row(
+          children: [
+            Expanded(child: Text('导出 ZIP 备份')),
+            HelpTooltip(message: '备份文件按“偷闲半日-备份-日期-时间.zip”命名，文件未加密，请妥善保存。'),
+          ],
+        ),
         onTap: () => _export(context),
       ),
       ListTile(
         contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.settings_backup_restore),
-        title: const Text('从 ZIP 合并恢复'),
-        subtitle: const Text('完整校验后合并到 Supabase，相同 UUID 使用备份版本。'),
+        title: const Row(
+          children: [
+            Expanded(child: Text('从 ZIP 合并恢复')),
+            HelpTooltip(message: '备份完整校验后才会合并到 Supabase；相同 UUID 使用备份版本。'),
+          ],
+        ),
         onTap: () => _restore(context),
       ),
       const SizedBox(height: 28),
@@ -105,9 +125,7 @@ class SettingsPage extends StatelessWidget {
         ShareParams(files: [XFile(file.path)], text: '偷闲半日本地备份（未加密）'),
       );
       if (context.mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('备份已导出：${file.uri.pathSegments.last}')),
         );
     } catch (error) {

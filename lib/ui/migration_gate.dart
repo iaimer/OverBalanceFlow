@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import '../app_controller.dart';
+import 'common.dart';
 
 class MigrationGate extends StatelessWidget {
   const MigrationGate({super.key, required this.controller});
@@ -29,8 +30,15 @@ class MigrationGate extends StatelessWidget {
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 12),
-            const Text(
-              '应用会以只读方式复制 Supabase 中的全部记录和照片，先写入暂存区并逐项校验。任何失败都不会修改云端，也不会留下不完整的本地账本。',
+            const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: Text('迁移说明')),
+                HelpTooltip(
+                  message:
+                      '应用会以只读方式复制 Supabase 中的全部记录和照片，先写入暂存区并逐项校验。任何失败都不会修改云端，也不会留下不完整的本地账本。',
+                ),
+              ],
             ),
             if (controller.migrationError != null) ...[
               const SizedBox(height: 20),
@@ -80,7 +88,14 @@ class MigrationGate extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const Text('请保持旧 Web 数据和 Supabase 不变，直到迁移报告、重启和备份恢复均验证通过。'),
+            const Row(
+              children: [
+                Expanded(child: Text('安全提示')),
+                HelpTooltip(
+                  message: '请保持旧 Web 数据和 Supabase 不变，直到迁移报告、重启和备份恢复均验证通过。',
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -88,10 +103,7 @@ class MigrationGate extends StatelessWidget {
   );
 
   Future<void> _restore(BuildContext context) async {
-    const group = XTypeGroup(
-      label: '偷闲半日 ZIP 备份',
-      extensions: ['zip'],
-    );
+    const group = XTypeGroup(label: '偷闲半日 ZIP 备份', extensions: ['zip']);
     final selected = await openFile(acceptedTypeGroups: [group]);
     if (selected == null || !context.mounted) return;
     final confirmed = await showDialog<bool>(

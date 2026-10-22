@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../domain/overtime_record.dart';
+import '../domain/annual_leave.dart';
 
 class SupabaseConfig {
   const SupabaseConfig(this.url, this.key);
@@ -18,6 +19,13 @@ class SupabaseConfig {
   }
 }
 
+class LedgerSnapshot {
+  const LedgerSnapshot(this.records, this.annual, this.calendar);
+  final List<OvertimeRecord> records;
+  final List<AnnualLeaveRecord> annual;
+  final LeaveCalendar calendar;
+}
+
 class SupabaseRepository {
   const SupabaseRepository(this.config);
   final SupabaseConfig config;
@@ -29,6 +37,70 @@ class SupabaseRepository {
     'Authorization': 'Bearer ${config.key}',
     'Content-Type': 'application/json',
   };
+
+  Future<LedgerSnapshot> fetchLedger() async {
+    final response = await _rpc('get_leave_ledger_snapshot', {});
+    final map = jsonDecode(response.body) as Map<String, dynamic>;
+    return LedgerSnapshot(
+      (map['records'] as List<dynamic>)
+          .map((r) => OvertimeRecord.fromMap(r as Map<String, dynamic>))
+          .toList(),
+      (map['annual_leave'] as List<dynamic>)
+          .map((r) => AnnualLeaveRecord.fromMap(r as Map<String, dynamic>))
+          .toList(),
+      LeaveCalendar(
+        (map['calendar'] as List<dynamic>).cast<Map<String, dynamic>>(),
+      ),
+    );
+  }
+
+  Future<http.Response> _rpc(String name, Map<String, Object?> payload) async {
+    final response = await http
+        .post(
+          Uri.parse('${config.url}/rest/v1/rpc/$name'),
+          headers: _headers,
+          body: jsonEncode(payload),
+        )
+        .timeout(_requestTimeout);
+    _ensureSuccess(response, '云端事务');
+    return response;
+  }
+
+  Future<void> saveAnnualLeave(
+    AnnualLeaveRecord record, {
+    required bool allowInsert,
+  }) async {
+    await _rpc('save_annual_leave_atomic', {
+      'payload': record.toMap(),
+      'allow_insert': allowInsert,
+    });
+  }
+
+  Future<void> deleteAnnualLeave(String id) async {
+    await _rpc('delete_annual_leave_atomic', {'target_id': id});
+  }
+
+  Future<void> saveCompensatoryLeave(
+    OvertimeRecord record,
+    List<ReconciliationDetail> details, {
+    required bool allowInsert,
+  }) async {
+    await _rpc('save_comp_leave_atomic', {
+      'leave_record': record.toMap(),
+      'deductions': details.map((d) => d.toMap()).toList(),
+      'allow_insert': allowInsert,
+    });
+  }
+
+  Future<void> restoreLedger(
+    List<OvertimeRecord> records,
+    List<AnnualLeaveRecord> annual,
+  ) async {
+    await _rpc('restore_leave_ledger_atomic', {
+      'records': records.map((r) => r.toMap()).toList(),
+      'annual_records': annual.map((r) => r.toMap()).toList(),
+    });
+  }
 
   Future<List<OvertimeRecord>> fetchAll() async {
     final response = await http
